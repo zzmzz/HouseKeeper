@@ -11,7 +11,7 @@ BASE = pathlib.Path(__file__).parent.parent
 LOG  = BASE / "traces.jsonl"
 
 class EV:
-    def __init__(self, dry_run=True, thresh=0.40, learn=True):
+    def __init__(self, dry_run=True, thresh=0.35, learn=True):
         self.u=Understander(thresh); self.dry=dry_run; self.learn=learn
         self.last=None          # 上一轮：{text, action, device, ...}
         self.pending=None       # 待确认的高危动作

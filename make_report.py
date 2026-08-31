@@ -41,9 +41,20 @@ def build(path, evs):
                 rows.append(f'<div class="nt">{esc(it["msg"])}</div>')
             elif it["ev"]=="curve":
                 pts=it.get("points",[])
-                rows.append('<div class="crv">'+''.join(
-                  f'<div class="cb"><div class="cbar" style="height:{p["hit"]}%"></div>'
-                  f'<div class="cl">{p["th"]:.2f}</div></div>' for p in pts)+'</div>')
+                if pts:
+                    if any("score" in x for x in pts):
+                        best=max(pts,key=lambda x:x.get("score",-1e9))
+                    else:   # 旧 run 没记 score，用同样的记分规则重算
+                        best=max(pts,key=lambda x:x["hit"]-(100-x["acc"])*6)
+                    # 答对率区间窄，按 (v-88)/12 拉伸才看得出差异
+                    def sc(v): return max(2,min(100,(v-88)/12*100))
+                    rows.append('<div class="lg2"><span><i class="i1"></i>本地接住率</span>'
+                                '<span><i class="i2"></i>本地答对率（88-100% 区间）</span></div>')
+                    rows.append('<div class="crv">'+''.join(
+                      f'<div class="cb{" sel" if p is best else ""}">'
+                      f'<div class="pair"><div class="cbar b1" style="height:{p["hit"]}%" title="接住 {p["hit"]}%"></div>'
+                      f'<div class="cbar b2" style="height:{sc(p["acc"])}%" title="答对 {p["acc"]}%"></div></div>'
+                      f'<div class="cl">{p["th"]:.2f}</div></div>' for p in pts)+'</div>')
         body.append(f'''<div class="st {'bad' if not s['ok'] else ''}">
   <div class="sh"><span class="sn">{s['n']}</span><span class="stt">{esc(s['name'])}</span>
    {f'<span class="sd">{esc(s["desc"])}</span>' if s['desc'] else ''}
@@ -53,10 +64,16 @@ def build(path, evs):
     final=""
     if end:
         tiles=[]
+        def fmt(v):
+            if isinstance(v,(int,float)):
+                return str(int(round(v))) if abs(v-round(v))<0.05 or abs(v)>=10 else f"{v:.1f}"
+            return str(v)
         for k,label,unit in [("gate","考卷成绩","%"),("local_hit","本地接住","%"),
                              ("gap","过拟合差距","pt"),("thresh","选定阈值","")]:
-            if k in end: tiles.append(f'<div class="tile"><div class="k">{label}</div>'
-                                      f'<div class="v">{end[k]}{unit}</div></div>')
+            if k in end:
+                v = f"{end[k]:.2f}" if k=="thresh" else fmt(end[k])   # 阈值不取整
+                tiles.append(f'<div class="tile"><div class="k">{label}</div>'
+                             f'<div class="v">{v}{unit}</div></div>')
         if "promoted" in end:
             tiles.append(f'<div class="tile"><div class="k">本轮晋升</div>'
                          f'<div class="v">{"是" if end["promoted"] else "否"}</div></div>')
@@ -85,9 +102,16 @@ h1{{font-size:29px;margin:0 0 6px;letter-spacing:-.01em}}.sub{{color:var(--i2);m
 .mv{{font-weight:600;font-variant-numeric:tabular-nums}}
 .mn{{color:var(--i3);font-size:12.5px}}
 .nt{{color:var(--i2);font-size:13.5px;padding:2px 0;white-space:pre-wrap}}
-.crv{{display:flex;gap:5px;align-items:flex-end;height:96px;margin:10px 0 4px}}
+.lg2{{display:flex;gap:14px;font-size:12px;color:var(--i2);margin:8px 0 2px}}
+.lg2 i{{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}}
+.lg2 .i1{{background:var(--s1)}}.lg2 .i2{{background:var(--s2)}}
+.crv{{display:flex;gap:6px;align-items:flex-end;height:110px;margin:6px 0 4px}}
 .cb{{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%}}
-.cbar{{width:100%;background:var(--s1);border-radius:3px 3px 0 0;min-height:2px}}
+.cb.sel .cl{{color:var(--s1);font-weight:700}}
+.cb.sel{{background:color-mix(in srgb,var(--s1) 8%,transparent);border-radius:5px}}
+.pair{{display:flex;gap:2px;align-items:flex-end;width:100%;height:100%}}
+.cbar{{flex:1;border-radius:3px 3px 0 0;min-height:2px}}
+.b1{{background:var(--s1)}}.b2{{background:var(--s2)}}
 .cl{{color:var(--i3);font-size:10.5px;margin-top:4px;font-variant-numeric:tabular-nums}}
 footer{{margin-top:34px;padding-top:16px;border-top:1px solid var(--bd);color:var(--i3);font-size:12.5px}}
 </style></head><body><div class="w">

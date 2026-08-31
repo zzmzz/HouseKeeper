@@ -129,7 +129,7 @@ def ngrams(s,n=(1,2,3)):
 
 class Student:
     """蒸馏出来的本地小模型。confidence 低于阈值就弃权，交给大模型。"""
-    def __init__(self, thresh=0.40):
+    def __init__(self, thresh=0.35):
         self.thresh=thresh; self.clf=None; self.vocab=None; self.labels=None
     def _tf(self, texts):
         M=np.zeros((len(texts),len(self.vocab)),dtype=np.float32)
@@ -156,7 +156,7 @@ class Student:
         i=int(p.argmax()); return self.labels[i], float(p[i])
 
 class Understander:
-    def __init__(self, thresh=0.40):
+    def __init__(self, thresh=0.35):
         self.store=json.loads(STORE.read_text("utf-8")) if STORE.exists() else {"l1":{}, "examples":[]}
         self.student=Student(thresh); self.thresh=thresh
         self.retrain()

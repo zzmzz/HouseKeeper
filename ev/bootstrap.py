@@ -178,12 +178,15 @@ def tune_threshold(run, u):
         hi=[ok for ok,c in preds if c>=th]
         n=len(hi); acc=(sum(hi)/n*100) if n else 100.0
         curve.append({"th":th,"hit":round(n/len(preds)*100,1),"acc":round(acc,1)})
-    # 甜点：本地零错误的前提下接住最多
-    best=max([c for c in curve if c["acc"]>=99.5], key=lambda x:x["hit"], default=None) \
-         or max(curve, key=lambda x:x["acc"])
+    # 甜点：本地接住越多越快，但答错要付纠正代价。
+    # 记分 = 接住率 - 错误率×K。K=6 表示"答错 1 次的代价 ≈ 少接住 6 次"
+    # （答错要用户纠正、可能已经动了设备；少接住只是慢 1 秒）
+    K = 6
+    for c in curve: c["score"] = round(c["hit"] - (100-c["acc"])*K, 1)
+    best = max(curve, key=lambda x: x["score"])
     run._emit("curve", name="threshold", points=curve)
     for c in curve:
-        run.note(f"阈值 {c['th']:.2f}  本地接住 {c['hit']:>5.1f}%  答对 {c['acc']:>5.1f}%"
+        run.note(f"阈值 {c['th']:.2f}  本地接住 {c['hit']:>5.1f}%  答对 {c['acc']:>5.1f}%  记分 {c['score']:>6.1f}"
                  + ("   ← 选它" if c["th"]==best["th"] else ""))
     run.metric("选定阈值", best["th"], "", f"接住 {best['hit']}%，答对 {best['acc']}%")
     return best["th"], curve
