@@ -1,0 +1,23 @@
+# 密钥
+.env
+
+# 运行时产生的数据（含真实交互记录，不提交）
+store.json
+store.candidate.json
+traces.jsonl
+regression_suite.json
+holdout.json
+dataset.json
+adversarial.json
+suite.json
+tuned.json
+models/
+runs/
+report.html
+_backup*/
+
+# Python
+__pycache__/
+*.pyc
+_scratch/
+learned.json
