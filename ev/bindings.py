@@ -324,10 +324,19 @@ BINDINGS = {
  },
  "humidifier_on": {
   "kind": "hass_control",
-  "service": "switch.turn_on",
-  "entity": "switch.leshow_jsq3_2ff2_alarm",
+  "service": "humidifier.turn_on",
+  "entity": "humidifier.leshow_cn_592414455_jsq3",
   "reply": "加湿器开了",
-  "device": "加湿器"
+  "device": "加湿器",
+  "undo": "humidifier_off"
+ },
+ "humidifier_off": {
+  "kind": "hass_control",
+  "service": "humidifier.turn_off",
+  "entity": "humidifier.leshow_cn_592414455_jsq3",
+  "reply": "加湿器关了",
+  "device": "加湿器",
+  "undo": "humidifier_on"
  },
  "fresh_air_on": {
   "kind": "hass_control",

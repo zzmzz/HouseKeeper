@@ -21,3 +21,5 @@ __pycache__/
 *.pyc
 _scratch/
 learned.json
+*.draft.md
+*.draft.py
