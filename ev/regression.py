@@ -53,7 +53,7 @@ def save(items):
 
 def grow(per=6, only_missing=True):
     """给能力生成题目。only_missing=True 时只补还没题目的能力。"""
-    items=load(); have={i["action"] for i in items}
+    items=load(); have={i["action"] for i in items}; fails=[]
     for aid,c in CAPS.items():
         if only_missing and aid in have: continue
         try:
@@ -63,11 +63,14 @@ def grow(per=6, only_missing=True):
                 "注意不要写成清单里其它动作的说法（尤其区分开/关、热/冷、询问/执行）。"
                 "只输出 JSON 字符串数组。"},
                 {"role":"user","content":f"动作：{aid} - {c['name']}\n什么时候用：{c.get('use','')}\n辨析：{c.get('conflict','')}"}])
-            for t in json.loads(out):
+            for t in _LLM.parse_json(out):
                 if isinstance(t,str) and t.strip():
                     items.append({"text":t.strip(),"action":aid,"src":"generated",
                                   "split":assign_split(t.strip(),"generated")})
-        except Exception as e: print("  skip",aid,e)
+        except Exception as e:
+            fails.append(aid); print(f"  ✗ {aid}: {type(e).__name__} {str(e)[:60]}")
+    if fails:
+        print(f"  ⚠️ {len(fails)}/{len(CAPS)} 个能力没造出题目：{fails[:8]}")
     return save(items)
 
 def add_case(text, action, src="correction"):

@@ -97,8 +97,7 @@ def call_llm_ctx(text, last, timeout=40):
     try:
         with urllib.request.urlopen(req,timeout=timeout) as r:
             t=json.loads(r.read())["choices"][0]["message"]["content"].strip()
-        if "```" in t: t=t.split("```")[1].replace("json","",1).strip()
-        d=json.loads(t)
+        d=_LLM.parse_json(t)
         acts=d.get("actions") or ([d["action"]] if d.get("action") else [])
         acts=[a for a in acts if a in CAPS]
         return dict(type=d.get("type","new"), action=(acts[0] if acts else None),
@@ -114,9 +113,8 @@ def call_llm(text, timeout=40):
         headers={"Authorization":"Bearer "+ENV["EV_API_KEY"],"Content-Type":"application/json"})
     with urllib.request.urlopen(req,timeout=timeout) as r:
         t=json.loads(r.read())["choices"][0]["message"]["content"].strip()
-    if "```" in t: t=t.split("```")[1].replace("json","",1).strip()
     try:
-        d=json.loads(t)
+        d=_LLM.parse_json(t)
         acts=d.get("actions") or ([d["action"]] if d.get("action") else [])
         acts=[a for a in acts if a in CAPS]
         return (acts[0] if acts else None), acts
