@@ -23,3 +23,5 @@ _scratch/
 learned.json
 *.draft.md
 *.draft.py
+.bootstrap.lock
+.loop.lock

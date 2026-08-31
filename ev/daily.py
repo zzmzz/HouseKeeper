@@ -8,7 +8,7 @@
   Feedback 考卷分数决定晋升还是回滚
   Adapt   过了门槛才换模型，旧版本留备份可回滚
 """
-import json, pathlib, shutil, sys, warnings, datetime
+import json, os, pathlib, shutil, sys, warnings, datetime
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from pipeline import Run
@@ -130,7 +130,21 @@ def distill(run, new):
     run.note(f"❌ 回滚：{after['acc']:.0f}% 不如 {before['acc']:.0f}%，不换")
     return False, before["acc"], after["acc"]
 
+def _lock(name):
+    """单实例锁：并发跑会互相覆盖 store.json 和题库，结果不可信"""
+    lk = BASE / name
+    if lk.exists():
+        try: pid = int(lk.read_text().strip())
+        except Exception: pid = None
+        if pid and pathlib.Path(f"/proc/{pid}").exists():
+            sys.exit(f"已有任务在跑（pid {pid}）。等它结束，或先 kill 掉。\n"
+                     "并发运行会互相覆盖学习数据和题库，结果不可信。")
+        lk.unlink()
+    lk.write_text(str(os.getpid()))
+    import atexit; atexit.register(lambda: lk.exists() and lk.unlink())
+
 def main():
+    _lock(".loop.lock")
     run = Run("daily")
     print("="*70); print("E.V. 日常 Loop：从真实交互持续改进"); print("="*70)
     with run.stage("收集", "只捞本地没把握的——学习价值最高") as r:

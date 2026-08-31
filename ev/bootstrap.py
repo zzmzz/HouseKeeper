@@ -11,7 +11,7 @@
 
 用法：python3 bootstrap.py [--per 18] [--skip-audit]
 """
-import json, pathlib, sys, warnings
+import json, os, pathlib, sys, warnings
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from pipeline import Run
@@ -165,6 +165,9 @@ def train(run):
 # ---------- 阶段 6：自动选阈值 ----------
 def tune_threshold(run, u):
     items = regression.load("gate")
+    if not items:
+        run.note("考卷为空 —— 造题阶段可能全失败了，请检查上面的报错。用保守默认 0.40")
+        return 0.40, []
     preds=[]
     for it in items:
         if it["text"] in u.store["l1"]: p,c = u.store["l1"][it["text"]], 1.0
@@ -224,7 +227,21 @@ def evaluate(run, thresh):
             "local_hit":round(len(hi)/len(items)*100,1) if items else 0,
             "local_acc":round(sum(hi)/len(hi)*100,1) if hi else 0}
 
+def _lock(name):
+    """单实例锁：并发跑会互相覆盖 store.json 和题库，结果不可信"""
+    lk = BASE / name
+    if lk.exists():
+        try: pid = int(lk.read_text().strip())
+        except Exception: pid = None
+        if pid and pathlib.Path(f"/proc/{pid}").exists():
+            sys.exit(f"已有任务在跑（pid {pid}）。等它结束，或先 kill 掉。\n"
+                     "并发运行会互相覆盖学习数据和题库，结果不可信。")
+        lk.unlink()
+    lk.write_text(str(os.getpid()))
+    import atexit; atexit.register(lambda: lk.exists() and lk.unlink())
+
 def main():
+    _lock(".bootstrap.lock")
     per = PER
     if "--per" in sys.argv: per = int(sys.argv[sys.argv.index("--per")+1])
     run = Run("bootstrap")
