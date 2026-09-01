@@ -18,11 +18,14 @@ SESSION="${EV_SESSION:-xiaoai}"
 ROOM="${EV_ROOM:-}"
 # 设了就只处理以它开头的话；留空 = 接管全部语音
 PREFIX="${EV_PREFIX:-}"
+# 回答完是否自动开麦（连续对话，不用每轮重喊唤醒词）。1=开启
+KEEP_MIC="${EV_KEEP_MIC:-1}"
 STATE="/tmp/ev_last_dialog"
 
 echo "[E.V.] 客户端启动 -> $EV_URL"
 echo "[E.V.] $([ -n "$PREFIX" ] && echo "仅处理「$PREFIX」开头" || echo "接管全部语音")"
 [ -n "$ROOM" ] && echo "[E.V.] 本机位于：$ROOM（笼统指令默认落在这个房间）"
+[ "$KEEP_MIC" = "1" ] && echo "[E.V.] 连续对话已开：答完自动开麦，不用重喊唤醒词"
 
 # 说话（原生 TTS）
 speak() {
@@ -32,9 +35,16 @@ speak() {
 hand_back() {
   ubus call mibrain ai_service "{\"nlp\":1,\"nlp_text\":\"$1\"}" >/dev/null 2>&1
 }
-# 打断小爱自己的回答，避免和我们的回答重叠
+# 打断小爱自己的回答，避免和我们的回答重叠。
+# 注意：event 7 实际是「取消唤醒」序列的一半，副作用是**会把麦克风关掉**——
+# 所以说完话必须配一次 wake_up 把麦开回来，否则用户每轮都要重新喊唤醒词。
 stop_native() {
   ubus call pnshelper event_notify '{"src":3,"event":7}' >/dev/null 2>&1
+}
+
+# 静默唤醒：开麦但不出「我在」提示音，用户可以直接接着说下一句
+wake_up() {
+  ubus call pnshelper event_notify '{"src":1,"event":0}' >/dev/null 2>&1
 }
 
 tail -F "$LOG" 2>/dev/null | while read -r line; do
@@ -60,7 +70,7 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
   fi
 
   echo "[E.V.] 听到：$spoken"
-  stop_native
+  stop_native          # 第一次：尽早掐掉小爱的思考
 
   resp=$(curl -s -m 20 -X POST "$EV_URL/ask" \
     -H "Content-Type: application/json" \
@@ -76,10 +86,18 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
 
   if [ "$handled" = "true" ]; then
     echo "[E.V.] 回答：$reply"
+    # 第二次打断：小爱是在识别完之后才组织回答的，
+    # 上面那次打断时它还没开口，等我们拿到答案（~0.2s）它正好开始说，
+    # 两个声音会抢——所以说话前必须再掐一次。
+    stop_native
+    sleep 0.3
     speak "$reply"
+    # 说完重新开麦，用户可以直接接着说（纠正、追问都不用再喊唤醒词）
+    [ "$KEEP_MIC" = "1" ] && { sleep 0.2; wake_up; }
   else
     # 不交回小爱了——做不到就如实说，缺什么能力由 daily loop 的缺口队列去补
     echo "[E.V.] 做不到：$reply"
     speak "${reply:-这个我还做不了}"
+    [ "$KEEP_MIC" = "1" ] && { sleep 0.2; wake_up; }
   fi
 done
