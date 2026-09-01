@@ -52,16 +52,20 @@ def collect(run, limit=80):
     return cand[:limit], stat
 
 def label(run, cand):
-    """大模型标注（运行时同款提示词，保证口径一致）"""
-    out=[]
+    """大模型标注（运行时同款提示词，保证口径一致）
+    返回 (标注成功的, 大模型也搞不定的)。后者不能丢——它们才是能力缺口的线索。"""
+    out=[]; unresolved=[]
     for i,t in enumerate(cand,1):
         try:
             a,_ = call_llm(t)
             if a: out.append({"text":t,"action":a,"src":"daily"})
-        except Exception: pass
+            else:  unresolved.append(t)
+        except Exception:
+            unresolved.append(t)
         if i%20==0: run.note(f"已标注 {i}/{len(cand)}")
     run.metric("标注成功", len(out), "条")
-    return out
+    run.metric("大模型也搞不定", len(unresolved), "条", "这些是能力缺口的线索")
+    return out, unresolved
 
 def audit_poison(run):
     """质检已学标注，抓被固化的错误（Claude）"""
@@ -152,7 +156,14 @@ def main():
     new=[]
     if cand:
         with run.stage("标注", "大模型当老师") as r:
-            new = label(r, cand)
+            new, unresolved = label(r, cand)
+    with run.stage("能力缺口", "大模型也搞不定的：分类、攒证据、够了才找人") as r:
+        import gaps
+        found = gaps.classify(r, unresolved) if unresolved else []
+        gs = gaps.merge(r, found)
+        gs = gaps.check_done(r)          # 人做完了？系统自己发现
+        gaps.notify(r, gs)
+
     with run.stage("质检已学标注", "抓被固化的错误") as r:
         audit_poison(r)
     with run.stage("蒸馏 + 晋升门槛", "考卷不许变差才准换") as r:

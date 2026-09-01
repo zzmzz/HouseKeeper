@@ -25,3 +25,5 @@ learned.json
 *.draft.py
 .bootstrap.lock
 .loop.lock
+gaps.json
+inbox/
