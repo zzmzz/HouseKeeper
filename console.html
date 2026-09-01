@@ -61,6 +61,13 @@ pre{margin:6px 0 0;font-size:11.5px;color:var(--i3);white-space:pre-wrap;word-br
 <div class="quick" id="quick"></div>
 <div class="quick"><button class="g" onclick="suite()">▶ 跑一遍标准场景（自动检查对错）</button></div>
 
+<div class="st" id="loopbox" style="display:none"></div>
+<div class="quick">
+  <button class="g" onclick="loadPending()">🔄 看看哪些会进 daily loop</button>
+  <button class="g" id="runbtn" onclick="runDaily()">▶ 手动跑一次 daily loop</button>
+</div>
+<div id="loop"></div>
+
 <div id="log"></div>
 </div><script>
 const QUICK=["打开空调","把灯关了","客厅空调打开","现在适合开窗吗","我要睡了",
@@ -161,6 +168,68 @@ async function suite(){
   log.insertAdjacentHTML('afterbegin',
     `<div class="st">标准场景：<b class="${pass===SUITE.length?'pass':'fail'}">${pass}/${SUITE.length}</b> 通过　（位置：${room||'未设'}）</div>`);
 }
+async function loadPending(){
+  const box=document.getElementById('loop');
+  box.innerHTML='<div class="st">加载中…</div>';
+  try{
+    const d=await (await fetch('/pending')).json();
+    const s=d.stat||{};
+    let h=`<div class="st">
+      交互 <b>${s.total||0}</b> 条　·　本地接住 <b>${s.local_rate||0}%</b>
+      （L1 ${s.l1||0} / L2 ${s.l2||0} / L3 ${s.l3||0}）　·　被纠正 <b>${s.corrections||0}</b> 次
+      　·　没接住 <b>${s.unhandled||0}</b> 条
+    </div>`;
+    h+=`<div class="st"><b>会进 daily loop 的 ${d.pending.length} 条</b>
+        <div style="color:var(--i3);font-size:12px;margin:4px 0 8px">
+        判据和 daily.collect 一致：大模型兜底过的、或本地置信度 &lt; 0.6 的（已学过的、考卷里的都排除）</div>`;
+    if(!d.pending.length) h+='<div style="color:var(--i3)">暂时没有——说明本地都接住了</div>';
+    for(const p of d.pending.slice(0,25)){
+      h+=`<div style="padding:5px 0;border-top:1px solid var(--bd)">
+        <b>${p.text}</b>
+        <div class="tr" style="margin-top:3px">
+          <span class="tag">${p.layer||'-'}</span>
+          ${p.conf!=null?`<span class="tag">conf ${p.conf}</span>`:''}
+          <span class="tag">${p.action??'没接住'}</span>
+          <span class="tag no">${p.why}</span>
+        </div></div>`;
+    }
+    h+='</div>';
+    if(d.gaps&&d.gaps.length){
+      h+=`<div class="st"><b>需要你参与的能力缺口 ${d.gaps.length} 个</b>
+          <div style="color:var(--i3);font-size:12px;margin:4px 0 8px">
+          大模型也解决不了的，攒够 3 次才会推送提醒</div>`;
+      for(const g of d.gaps){
+        h+=`<div style="padding:5px 0;border-top:1px solid var(--bd)">
+          <span class="tag">${g.kind}</span> <b>${g.title}</b>
+          <span class="tag">${g.hits}次</span>
+          <pre>${g.action}</pre></div>`;
+      }
+      h+='</div>';
+    }
+    box.innerHTML=h;
+  }catch(e){box.innerHTML='<div class="st">出错：'+e+'</div>'}
+}
+
+let dailyTimer=null;
+async function runDaily(){
+  const btn=document.getElementById('runbtn'); btn.disabled=true;
+  const lb=document.getElementById('loopbox'); lb.style.display='';
+  lb.innerHTML='启动中…';
+  try{
+    const r=await (await fetch('/daily',{method:'POST'})).json();
+    if(!r.ok&&r.running){ lb.textContent='已经在跑了'; }
+  }catch(e){ lb.textContent='启动失败：'+e; btn.disabled=false; return }
+  clearInterval(dailyTimer);
+  dailyTimer=setInterval(async()=>{
+    try{
+      const d=await (await fetch('/daily/status')).json();
+      lb.innerHTML=`<b>daily loop ${d.running?'运行中':'已结束'}</b>　${d.elapsed}s
+        <pre style="max-height:340px;overflow:auto">${(d.lines||[]).join('\n')||'…'}</pre>`;
+      if(!d.running){ clearInterval(dailyTimer); btn.disabled=false; loadPending(); health(); }
+    }catch(e){}
+  },2000);
+}
+
 function reset(){
   document.getElementById('log').innerHTML='';
   fetch('/reset',{method:'POST',headers:{'Content-Type':'application/json'},

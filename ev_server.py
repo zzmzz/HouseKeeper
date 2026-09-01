@@ -16,7 +16,7 @@ handled=false 表示 E.V. 管不了这句话（不是家居指令），
     python3 ev_server.py --real         # 真实控制
     python3 ev_server.py --port 8848
 """
-import json, sys, pathlib, warnings, threading
+import json, sys, time, pathlib, warnings, threading
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(pathlib.Path(__file__).parent / "ev"))
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -41,6 +41,32 @@ def get_ev(session, room=None):
             ev.u.room = room
         return ev
 
+# ---- daily loop 手动触发 ----
+import subprocess, re as _re
+_daily = {"proc": None, "log": pathlib.Path("/tmp/ev_daily_web.log"), "started": None}
+
+def _daily_start():
+    p = _daily["proc"]
+    if p and p.poll() is None:
+        return {"ok": False, "running": True, "msg": "已经在跑了"}
+    _daily["log"].write_text("", "utf-8")
+    _daily["proc"] = subprocess.Popen(
+        [sys.executable, "daily.py"],
+        cwd=str(pathlib.Path(__file__).parent / "ev"),
+        stdout=_daily["log"].open("w"), stderr=subprocess.STDOUT)
+    _daily["started"] = time.time()
+    return {"ok": True, "running": True, "pid": _daily["proc"].pid}
+
+def _daily_status():
+    p = _daily["proc"]
+    running = bool(p and p.poll() is None)
+    txt = _daily["log"].read_text("utf-8", errors="ignore") if _daily["log"].exists() else ""
+    # 抽出阶段和指标行
+    lines = [l.rstrip() for l in txt.splitlines() if l.strip()]
+    return {"running": running, "started": _daily["started"],
+            "elapsed": round(time.time() - _daily["started"]) if _daily["started"] else 0,
+            "exit": (p.poll() if p else None), "lines": lines[-40:]}
+
 class H(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
         b = json.dumps(obj, ensure_ascii=False).encode()
@@ -57,6 +83,12 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(b)))
             self.end_headers(); self.wfile.write(b); return
+        if self.path.startswith("/pending"):
+            import importlib, pending
+            importlib.reload(pending)
+            return self._send(pending.survey())
+        if self.path.startswith("/daily/status"):
+            return self._send(_daily_status())
         if self.path.startswith("/health"):
             ev = get_ev("_probe")
             return self._send({"ok": True, "capabilities": len(CAPS),
@@ -66,6 +98,8 @@ class H(BaseHTTPRequestHandler):
         self._send({"error": "not found"}, 404)
 
     def do_POST(self):
+        if self.path.startswith("/daily"):
+            return self._send(_daily_start())
         if self.path.startswith("/reset"):
             try:
                 n = int(self.headers.get("Content-Length", 0))

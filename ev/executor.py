@@ -48,18 +48,20 @@ def execute(action, dry_run=False, confirmed=False):
 
     if k == KIND_QUERY:
         if cap.get("state_query"):
-            # 遍历所有可控设备，报当前状态
+            # 按设备类型过滤 —— 问「哪些灯还开着」就只查灯，别把摄像头新风都报出来
+            want = cap.get("filter")          # None = 全部
             seen={}
             for aid,c in CAPS.items():
                 if c.get("kind")!=KIND_CONTROL or not c.get("entity"): continue
                 d=device_of(aid) or c["name"]
+                if want and not any(k in d for k in want): continue
                 if d not in seen: seen[d]=c["entity"]
             vals=R.read_states(list(seen.items()))
             on=[k2 for k2,v in vals.items() if v=="on"]
-            off=[k2 for k2,v in vals.items() if v=="off"]
-            txt = ("开着的：" + "、".join(on)) if on else "现在没有开着的设备"
-            return {"ok": True, "reply": txt, "device": f"共查 {len(vals)} 个设备",
-                    "detail": {"on":on,"off":off}}
+            label = cap.get("label","设备")
+            txt = (f"开着的{label}：" + "、".join(on)) if on else f"现在没有开着的{label}"
+            return {"ok": True, "reply": txt, "device": f"查了 {len(vals)} 个{label}",
+                    "detail": {"on":on,"off":[k2 for k2,v in vals.items() if v=="off"]}}
         vals = R.read_states(cap.get("sensors", []))
         if action == "air_quality":
             wx = R.script_weather()
@@ -79,6 +81,15 @@ def execute(action, dry_run=False, confirmed=False):
         if not d.get("ok"): return {"ok": False, "reply": "查不到，接口出错了", "detail": d}
         if cap["script"]=="commute":
             return {"ok": True, "reply": f"现在开车到公司大概 {d['minutes']} 分钟，{d['km']} 公里", "device": "百度地图", "detail": d}
+        if cap["script"] in ("volume_up","volume_down"):
+            return {"ok": True, "reply": f"音量调到 {d['to']}%", "device":"音箱音量", "detail": d}
+        if cap["script"]=="music_pause":
+            return {"ok": True, "reply": f"{d['action']}了", "device":"音箱", "detail": d}
+        if cap["script"]=="music_next":
+            return {"ok": True, "reply": "切下一首", "device":"音箱", "detail": d}
+        if cap["script"]=="ac_temp_unsupported":
+            return {"ok": True, "reply": "家里空调只接了开关，调不了温度——只能开或关。要我关掉吗？",
+                    "device":"空调", "detail": d}
         if cap["script"]=="weather":
             return {"ok": True, "reply": f"外面 {d['temp']}℃，{d['cond']}，湿度 {d['humidity']}%", "detail": d}
         return {"ok": True, "reply": "开始播放", "detail": d}

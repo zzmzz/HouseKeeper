@@ -67,8 +67,8 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
     -d "{\"text\":\"$spoken\",\"session\":\"$SESSION\",\"room\":\"$ROOM\"}" 2>/dev/null)
 
   if [ -z "$resp" ]; then
-    echo "[E.V.] 服务无响应，交回小爱"
-    hand_back "$text"; continue
+    echo "[E.V.] 服务无响应"
+    speak "后台没反应，等下再试"; continue
   fi
 
   handled=$(echo "$resp" | sed -n 's/.*"handled"[[:space:]]*:[[:space:]]*\([a-z]*\).*/\1/p' | head -1)
@@ -78,7 +78,8 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
     echo "[E.V.] 回答：$reply"
     speak "$reply"
   else
-    echo "[E.V.] 不归我管，交回小爱"
-    hand_back "$text"
+    # 不交回小爱了——做不到就如实说，缺什么能力由 daily loop 的缺口队列去补
+    echo "[E.V.] 做不到：$reply"
+    speak "${reply:-这个我还做不了}"
   fi
 done

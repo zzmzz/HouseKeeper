@@ -5,6 +5,22 @@
 KIND_CONTROL='hass_control'; KIND_QUERY='hass_query'; KIND_SCRIPT='script'; KIND_SCENE='scene'
 
 BINDINGS = {
+ "lights_state": {"kind":"hass_query","state_query":True,"filter":["灯","浴霸"],"label":"灯"},
+ "all_lights_off": {"kind":"scene","steps":["light_living_off","light_bed_off","kitchen_off",
+    "dry_area_off","entry_off","hallway_off","dining_off","wall_wash_off","bath_heater_off"],
+    "reply":"所有灯都关了","device":"全屋灯"},
+ "all_ac_on": {"kind":"scene","steps":["ac_on","ac_bed_on","ac_second_on"],
+    "reply":"三台空调都开了","device":"客厅/主卧/次卧空调","undo":"all_ac_off"},
+ "all_ac_off": {"kind":"scene","steps":["ac_off","ac_bed_off","ac_second_off"],
+    "reply":"三台空调都关了","device":"客厅/主卧/次卧空调","undo":"all_ac_on"},
+ "all_fresh_air_off": {"kind":"scene","steps":["fresh_air_off"],
+    "reply":"新风关了","device":"全屋新风"},
+ "volume_up": {"kind":"script","script":"volume_up","device":"音箱音量"},
+ "volume_down": {"kind":"script","script":"volume_down","device":"音箱音量"},
+ "music_pause": {"kind":"script","script":"music_pause","device":"音箱"},
+ "music_next": {"kind":"script","script":"music_next","device":"音箱"},
+ "ac_temp_unsupported": {"kind":"script","script":"ac_temp_unsupported","device":"空调"},
+
  "light_living_on": {
   "kind": "hass_control",
   "service": "switch.turn_on",

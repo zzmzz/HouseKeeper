@@ -97,4 +97,36 @@ def script_music(dry_run=False):
     r = hass_call("media_player.media_play", {"entity_id": MUSIC_PLAYER}, dry_run)
     return {"ok": "ERR" not in r, "detail": r, "player": MUSIC_PLAYER}
 
-SCRIPTS = {"commute": script_commute, "weather": script_weather, "music": script_music}
+def _mp(service, data=None, dry_run=False):
+    d={"entity_id": MUSIC_PLAYER}; d.update(data or {})
+    return hass_call(service, d, dry_run)
+
+def _vol(delta, dry_run=False):
+    cur = hass_tpl("{{ state_attr('%s','volume_level') }}" % MUSIC_PLAYER)
+    try: v=float(cur)
+    except Exception: v=0.2
+    nv=max(0.0, min(1.0, round(v+delta, 2)))
+    r=_mp("media_player.volume_set", {"volume_level": nv}, dry_run)
+    return {"ok":"ERR" not in r, "from":round(v*100), "to":round(nv*100), "detail":r}
+
+def script_volume_up(dry_run=False):   return _vol(+0.15, dry_run)
+def script_volume_down(dry_run=False): return _vol(-0.15, dry_run)
+
+def script_music_pause(dry_run=False):
+    st = hass_tpl("{{ states('%s') }}" % MUSIC_PLAYER).strip()
+    svc = "media_player.media_pause" if st == "playing" else "media_player.media_play"
+    r=_mp(svc, None, dry_run)
+    return {"ok":"ERR" not in r, "was":st, "action":"暂停" if st=="playing" else "继续", "detail":r}
+
+def script_music_next(dry_run=False):
+    r=_mp("media_player.media_next_track", None, dry_run)
+    return {"ok":"ERR" not in r, "detail":r}
+
+def script_ac_temp_unsupported(dry_run=False):
+    """家里空调只接了开关，调不了温度。如实说，不要拿开/关顶替。"""
+    return {"ok": True, "unsupported": True}
+
+SCRIPTS = {"commute": script_commute, "weather": script_weather, "music": script_music,
+           "volume_up": script_volume_up, "volume_down": script_volume_down,
+           "music_pause": script_music_pause, "music_next": script_music_next,
+           "ac_temp_unsupported": script_ac_temp_unsupported}

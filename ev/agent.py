@@ -86,9 +86,9 @@ class EV:
         # —— 正常一轮（u 上面已算）——
         acts=u.get("actions") or ([u["action"]] if u.get("action") else [])
         if u.get("out_of_scope"):
-            r={"ok":True,"reply":"这个不归我管","detail":"out_of_scope","out_of_scope":True}
+            r={"ok":True,"reply":"这个我还做不了，先记下来了","detail":"out_of_scope","out_of_scope":True}
         elif not acts:
-            r={"ok":False,"reply":"这个我还不会，要不换个说法？","detail":None}
+            r={"ok":False,"reply":"这个我还做不了，先记下来了","detail":None}
         elif len(acts)==1:
             r=execute(acts[0], dry_run=self.dry)
         else:
