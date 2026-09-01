@@ -1,0 +1,247 @@
+[
+  {
+    "text": "把湿区那个浴霸打开，热水器也开一下",
+    "actions": [
+      "bath_heater_on",
+      "water_heater_on"
+    ]
+  },
+  {
+    "text": "帮我把浴霸开起来，热水器顺手开一下",
+    "actions": [
+      "bath_heater_on",
+      "water_heater_on"
+    ]
+  },
+  {
+    "text": "客厅灯关掉，再把空调停了",
+    "actions": [
+      "light_living_off",
+      "ac_off"
+    ]
+  },
+  {
+    "text": "帮我关一下客厅灯和客厅空调",
+    "actions": [
+      "light_living_off",
+      "ac_off"
+    ]
+  },
+  {
+    "text": "把客厅收拾一下——灯关掉，空调关掉",
+    "actions": [
+      "light_living_off",
+      "ac_off"
+    ]
+  },
+  {
+    "text": "客厅开灯，空调开冷风",
+    "actions": [
+      "light_living_on",
+      "ac_on"
+    ]
+  },
+  {
+    "text": "帮我把客厅灯点上，顺手把空调开到制冷",
+    "actions": [
+      "light_living_on",
+      "ac_on"
+    ]
+  },
+  {
+    "text": "客厅太黑了也太热了，灯和空调一起开",
+    "actions": [
+      "light_living_on",
+      "ac_on"
+    ]
+  },
+  {
+    "text": "进门灯开开，过道灯也开",
+    "actions": [
+      "hallway_on",
+      "entry_on"
+    ]
+  },
+  {
+    "text": "进门灯打开，顺便过道灯也亮着吧，猫老在那儿溜达怕踩着",
+    "actions": [
+      "hallway_on",
+      "entry_on"
+    ]
+  },
+  {
+    "text": "过道灯开了，进门灯也别落下",
+    "actions": [
+      "hallway_on",
+      "entry_on"
+    ]
+  },
+  {
+    "text": "厨房灯和新风都打开",
+    "actions": [
+      "kitchen_on",
+      "fresh_air_on"
+    ]
+  },
+  {
+    "text": "把厨房灯开一下，再开个新风",
+    "actions": [
+      "kitchen_on",
+      "fresh_air_on"
+    ]
+  },
+  {
+    "text": "我进厨房了，灯开一下，新风也开，别一会儿全屋都是味儿",
+    "actions": [
+      "kitchen_on",
+      "fresh_air_on"
+    ]
+  },
+  {
+    "text": "把餐厅灯打开，再开个洗墙灯",
+    "actions": [
+      "dining_on",
+      "wall_wash_on"
+    ]
+  },
+  {
+    "text": "餐厅灯给我开了，洗墙灯也别关着，等下有人来吃饭",
+    "actions": [
+      "dining_on",
+      "wall_wash_on"
+    ]
+  },
+  {
+    "text": "开餐厅灯，再把洗墙灯打开，拍个照好看点",
+    "actions": [
+      "dining_on",
+      "wall_wash_on"
+    ]
+  },
+  {
+    "text": "主卧空调和布帘一起弄一下，空调开、帘子拉上",
+    "actions": [
+      "ac_bed_on",
+      "bed_curtain_close"
+    ]
+  },
+  {
+    "text": "把主卧空调开起来，顺便布帘拉一下",
+    "actions": [
+      "ac_bed_on",
+      "bed_curtain_close"
+    ]
+  },
+  {
+    "text": "先把主卧布帘拉严，空调也开着，屋里闷得慌",
+    "actions": [
+      "ac_bed_on",
+      "bed_curtain_close"
+    ]
+  },
+  {
+    "text": "关客厅的灯和纱帘",
+    "actions": [
+      "light_living_off",
+      "curtain_close"
+    ]
+  },
+  {
+    "text": "太亮了，客厅灯关掉，纱帘拉起来",
+    "actions": [
+      "light_living_off",
+      "curtain_close"
+    ]
+  },
+  {
+    "text": "拉上客厅纱帘，灯也关了",
+    "actions": [
+      "light_living_off",
+      "curtain_close"
+    ]
+  },
+  {
+    "text": "热水器开开，顺手把零冷水开了，不然放半天都是凉的",
+    "actions": [
+      "water_heater_on",
+      "zero_cold_water_on"
+    ]
+  },
+  {
+    "text": "开一下热水器 再把零冷水打开",
+    "actions": [
+      "water_heater_on",
+      "zero_cold_water_on"
+    ]
+  },
+  {
+    "text": "热水器打开，零冷水也打开",
+    "actions": [
+      "water_heater_on",
+      "zero_cold_water_on"
+    ]
+  },
+  {
+    "text": "帮我关一下客厅的监控，餐厅的监控也别开着了",
+    "actions": [
+      "camera_living_off",
+      "camera_dining_off"
+    ]
+  },
+  {
+    "text": "客厅摄像头关，餐厅摄像头也关，一会儿有朋友过来吃饭，别拍着人家",
+    "actions": [
+      "camera_living_off",
+      "camera_dining_off"
+    ]
+  },
+  {
+    "text": "客厅摄像头关掉 餐厅摄像头关掉",
+    "actions": [
+      "camera_living_off",
+      "camera_dining_off"
+    ]
+  },
+  {
+    "text": "开浴霸和干区灯",
+    "actions": [
+      "bath_heater_on",
+      "dry_area_on"
+    ]
+  },
+  {
+    "text": "浴霸开上，干区灯开上，我去刷牙",
+    "actions": [
+      "bath_heater_on",
+      "dry_area_on"
+    ]
+  },
+  {
+    "text": "浴霸和干区的灯都开上",
+    "actions": [
+      "bath_heater_on",
+      "dry_area_on"
+    ]
+  },
+  {
+    "text": "把空调调成制冷，再顺便拉上客厅的纱帘",
+    "actions": [
+      "ac_on",
+      "curtain_close"
+    ]
+  },
+  {
+    "text": "开空调制冷，顺便把客厅纱帘拉上",
+    "actions": [
+      "ac_on",
+      "curtain_close"
+    ]
+  },
+  {
+    "text": "空调制冷打开，客厅那个纱帘拉上就行",
+    "actions": [
+      "ac_on",
+      "curtain_close"
+    ]
+  }
+]

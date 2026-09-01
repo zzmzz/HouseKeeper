@@ -55,7 +55,17 @@ class EV:
                 return rec
             # 既不是确认也不是取消，当新指令处理（下面继续）
         # —— 交给理解层判断：纠正 还是 新指令（本地先认，拿不准问大模型）——
-        u=self.u.understand(text, learn=self.learn, last=self.last)
+        try:
+            u=self.u.understand(text, learn=self.learn, last=self.last)
+        except Exception as ex:
+            # 理解层出任何意外都不能让整个请求变成"不归我管"——那样用户
+            # 完全不知道是系统坏了。如实说，并把异常记进 traces 便于排查。
+            import traceback; traceback.print_exc()
+            rec=dict(ts=datetime.datetime.now().isoformat(timespec="seconds"), text=text,
+                     action=None, layer="错误", error=f"{type(ex).__name__}: {ex}",
+                     total_ms=round((time.time()-t0)*1000), ok=False,
+                     reply="我这边出了点问题，稍后再说一次")
+            self._log(rec); return rec
         if u.get("is_correction"):
             right=u.get("action"); undone=[]
             if u.get("undo") and self.last and self.last.get("action"):

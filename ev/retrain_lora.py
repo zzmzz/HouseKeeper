@@ -36,6 +36,15 @@ def export_data(run=None):
                                  {"role":"assistant","content":json.dumps({"actions":[a]},ensure_ascii=False)}]})
     for e in store["examples"]: add(e["text"], e["action"])
     for t,a in store["l1"].items(): add(t,a)
+    # 多意图：一条样本对应多个 action。
+    # 重复 3 次——它只占 8%，不加权重的话 600 步根本学不到（实测 0/35）。
+    for m in store.get("multi", []) * 3:
+        t = m["text"]
+        if t in gate: continue
+        # 注意：这里故意不去重（要的就是重复采样）
+        rows.append({"messages":[{"role":"system","content":SYS},
+                                 {"role":"user","content":t},
+                                 {"role":"assistant","content":json.dumps({"actions":m["actions"]},ensure_ascii=False)}]})
     random.shuffle(rows)
     nv = max(20, len(rows)//12)
     out = BASE/"finetune"; out.mkdir(exist_ok=True)
@@ -67,7 +76,7 @@ def run_all(run=None):
     # 训练到候选目录
     t0=time.time()
     r = _ssh(f"env -u HF_ENDPOINT python3 -m mlx_lm lora --model {MODEL} --train --data finetune "
-             f"--iters 600 --batch-size 8 --num-layers 8 --learning-rate 1e-4 "
+             f"--iters 1500 --batch-size 8 --num-layers 16 --learning-rate 2e-4 "
              f"--adapter-path adapters-cand --steps-per-report 200 --steps-per-eval 300 2>&1 | tail -3",
              timeout=2400)
     note(f"训练完成 {time.time()-t0:.0f}s")
