@@ -99,7 +99,19 @@ EV_ROOM=客厅 EV_SESSION=xiaoai-living sh /data/ev-client.sh
   而我们要等 E.V. 返回（~500ms）才打断——那时它已经说完了。
   实测出现过「正在打开窗帘。」「设备已经关啦」和我们的回答**三段抢播**。
   修法：收到 `is_final` 就连打三次、间隔 0.15s，覆盖它开口的窗口；
-  拿到答案后说话前再打一次。
+  拿到答案后说话前再打一次。用 `action:"stop"` 而不是 `pause`（pause 只是暂停，
+  可能续播），并带上从日志里拿到的 `dialog_id` 精确停这一轮。
+
+  > **参考同类项目**：[xiaogpt](https://github.com/yihong0618/xiaogpt) 的
+  > `--mute_xiaoai` 是**轮询小米云端接口**拿对话状态，发现小爱在答就播静音音频盖掉，
+  > 但云端往返有 **1-2 秒延迟**，小爱通常已经蹦出一两个字
+  > （见 [issue #73](https://github.com/yihong0618/xiaogpt/issues/73)、
+  > [#548](https://github.com/yihong0618/xiaogpt/issues/548)）。
+  > 我们直接读音箱**本地**的 instruction.log，延迟只有毫秒级，条件更好。
+  >
+  > 另注：open-xiaoai 官方补丁只改了 SSH/登录/OTA/启动项和音频驱动，
+  > **没有碰云端 NLU 链路** —— 它的 gemini/xiaozhi 示例是接管**音频流**、
+  > 在上传云端之前截胡，那才是根治，但要自己做 ASR。
 - **TTS 是异步的，而且没有可靠的"播完"事件**。`text_to_speech` 调用立刻返回；
   `instruction.log` 里的 `FinishSpeakStream` 只表示"流传输完"（1 秒内就出现），
   不是播放完。唯一可靠的信号是 **`mphelper mute_stat`：播放中=1，空闲=0**。

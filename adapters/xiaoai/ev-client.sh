@@ -47,7 +47,13 @@ hand_back() {
 #
 # 改用 mediaplayer 直接停播，只影响音频、不碰唤醒状态机。
 stop_native() {
-  ubus call mediaplayer player_play_operation '{"action":"pause"}' >/dev/null 2>&1
+  # stop 比 pause 更彻底（pause 只是暂停，小爱可能续播）。
+  # 带上 dialog_id 能精确停掉这一轮对话，而不是笼统停所有播放。
+  if [ -n "$1" ]; then
+    ubus call mediaplayer player_play_operation "{\"action\":\"stop\",\"dialog_id\":\"$1\"}" >/dev/null 2>&1
+  else
+    ubus call mediaplayer player_play_operation '{"action":"stop"}' >/dev/null 2>&1
+  fi
 }
 
 # 静默唤醒：开麦但不出「我在」提示音，用户可以直接接着说下一句。
@@ -108,7 +114,7 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
   # （IoT 指令走云端直连，比我们快），我们要等 E.V. 返回（~500ms）才打断的话，
   # 它两句都说完了——实测出现过「正在打开窗帘。」「设备已经关啦」和我们的回答三段抢播。
   # 所以这里连打三次、间隔 0.15 秒，覆盖它开口的那个窗口。
-  stop_native; sleep 0.15; stop_native; sleep 0.15; stop_native
+  stop_native "$dialog"; sleep 0.15; stop_native "$dialog"; sleep 0.15; stop_native "$dialog"
 
   resp=$(curl -s -m 20 -X POST "$EV_URL/ask" \
     -H "Content-Type: application/json" \
@@ -127,7 +133,7 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
     # 第二次打断：小爱是在识别完之后才组织回答的，
     # 上面那次打断时它还没开口，等我们拿到答案（~0.2s）它正好开始说，
     # 两个声音会抢——所以说话前必须再掐一次。
-    stop_native
+    stop_native "$dialog"
     sleep 0.3
     speak "$reply"
     # 说完重新开麦，用户可以直接接着说（纠正、追问都不用再喊唤醒词）
