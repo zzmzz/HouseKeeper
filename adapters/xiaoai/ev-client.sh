@@ -19,7 +19,10 @@ ROOM="${EV_ROOM:-}"
 # 设了就只处理以它开头的话；留空 = 接管全部语音
 PREFIX="${EV_PREFIX:-}"
 # 回答完是否自动开麦（连续对话，不用每轮重喊唤醒词）。1=开启
-KEEP_MIC="${EV_KEEP_MIC:-1}"
+# ⚠️ 默认关闭：开麦后麦克风会持续收音，环境噪音会被识别成碎片文本，
+#    可能陷入「答完开麦 -> 收到噪音 -> 又答 -> 又开麦」的循环。
+#    要用请显式 EV_KEEP_MIC=1，并配合上面的过短过滤。
+KEEP_MIC="${EV_KEEP_MIC:-0}"
 STATE="/tmp/ev_last_dialog"
 
 echo "[E.V.] 客户端启动 -> $EV_URL"
@@ -61,7 +64,7 @@ wake_up() {
 # 播完之前就 wake_up 没用——语音一结束小爱会自己把麦关掉。
 wait_speak_done() {
   i=0
-  while [ $i -lt 30 ]; do            # 最多等 15 秒
+  while [ $i -lt 16 ]; do            # 最多等 8 秒（超时就放弃开麦，不卡住主循环）
     sleep 0.5
     st=$(mphelper mute_stat 2>/dev/null | tr -d " \n")
     case "$st" in *0*) return 0 ;; esac
@@ -77,6 +80,15 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
   # 抠出文本（busybox 环境没有 jq，用 sed）
   text=$(echo "$line" | sed -n 's/.*"text"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
   [ -z "$text" ] && continue
+  # 开麦后麦克风会捕捉环境噪音，识别出「没」「了」这类碎片。
+  # 太短的一律忽略，否则会陷入「答完开麦 -> 收到噪音 -> 又答 -> 又开麦」的死循环。
+  # 注意：不能用 case "$text" in ?|??) —— shell 的 ? 匹配的是**字节**，
+  # 一个中文字符是 3 字节，`?` 永远匹配不上。用字节长度判断。
+  BYTES=$(printf %s "$text" | wc -c)
+  if [ "$BYTES" -le 6 ]; then          # <= 2 个中文字
+    echo "[E.V.] 忽略过短识别：$text"
+    continue
+  fi
 
   # 同一轮对话只处理一次
   dialog=$(echo "$line" | sed -n 's/.*"dialog_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
