@@ -71,15 +71,17 @@ def teacher_prompt():
             '一个意图就一个元素；都不匹配就 {"actions":[]}。不要解释。')
     return _STATIC_PROMPT
 
-def runtime_prompt():
-    """静态提示词 + 此刻的真实情况（放最后）"""
-    return teacher_prompt() + "\n\n【此刻】\n" + CTX.now_context() + "\n" + CTX.hint()
+def runtime_prompt(room=None):
+    """静态提示词 + 此刻的真实情况 + 说话地点（都放最后，保住前缀缓存）"""
+    p = teacher_prompt() + "\n\n【此刻】\n" + CTX.now_context() + "\n" + CTX.hint()
+    w = CTX.where(room)
+    return p + ("\n\n【说话地点】\n" + w if w else "")
 
 
 META = "meta_correction"
 OOS  = "out_of_scope"   # 不是家居指令，交回原助手
 
-def call_llm_ctx(text, last, timeout=40):
+def call_llm_ctx(text, last, room=None, timeout=40):
     """带上一轮上下文：一次调用同时判断『是纠正还是新指令』+『该做什么』"""
     from capabilities import CAPS
     sys_p = ("你是家庭助手。判断用户这句话是在【纠正】你上一轮做错的事，还是一条【新指令】。\n"
@@ -88,7 +90,8 @@ def call_llm_ctx(text, last, timeout=40):
         + GUARD + '\ntype=correction 表示在纠正上一轮；undo 表示要不要撤销上一轮那个操作。\n'
         '如果用户只是让你取消/别做了，type=correction、action=none、undo=true。\n'
         '如果是一条全新的指令（哪怕开头有"不对"之类的词），type=new。不要解释。'
-        + "\n\n【此刻】\n" + CTX.now_context() + "\n" + CTX.hint())
+        + "\n\n【此刻】\n" + CTX.now_context() + "\n" + CTX.hint()
+        + (("\n\n【说话地点】\n" + CTX.where(room)) if room else ""))
     user_p = (f'上一句：「{last["text"]}」\n被理解成：{last.get("action")}'
               f'（{CAPS.get(last.get("action"),{}).get("name","?")}）\n'
               f'实际操作了：{last.get("device","")}\n\n用户现在说：「{text}」')
@@ -108,9 +111,9 @@ def call_llm_ctx(text, last, timeout=40):
     except Exception:
         return dict(type="new", action=None, actions=[], undo=False)
 
-def call_llm(text, timeout=40):
+def call_llm(text, room=None, timeout=40):
     body=json.dumps({"model":ENV["EV_MODEL"],"messages":[
-        {"role":"system","content":runtime_prompt()},{"role":"user","content":text}],
+        {"role":"system","content":runtime_prompt(room)},{"role":"user","content":text}],
         "max_tokens":80,"temperature":0}).encode()
     req=urllib.request.Request(ENV["EV_API_URL"]+"/v1/chat/completions",data=body,
         headers={"Authorization":"Bearer "+ENV["EV_API_KEY"],"Content-Type":"application/json"})
@@ -160,7 +163,18 @@ class Student:
         i=int(p.argmax()); return self.labels[i], float(p[i])
 
 class Understander:
-    def __init__(self, thresh=0.35):
+    # 笼统的设备词：说话地点不同、答案就不同，本地 L2 不知道地点，必须交给 L3
+    AMBIGUOUS = ("空调","灯","新风","窗帘","帘")
+    ROOM_WORDS = ("客厅","主卧","次卧","卧室","餐厅","厨房","玄关","进门","过道","干区","阳台","客房")
+
+    def looks_room_ambiguous(self, text, room):
+        """在有地点的语音端上，用户说了设备但没点房间 -> 必须让 L3 结合地点判断"""
+        if not room: return False
+        if any(r in text for r in self.ROOM_WORDS): return False   # 点名了房间，不歧义
+        return any(w in text for w in self.AMBIGUOUS)
+
+    def __init__(self, thresh=0.35, room=None):
+        self.room=room
         self.store=json.loads(STORE.read_text("utf-8")) if STORE.exists() else {"l1":{}, "examples":[]}
         self.student=Student(thresh); self.thresh=thresh
         self.retrain()
@@ -269,6 +283,25 @@ class Understander:
     def understand(self, text, learn=True, last=None):
         t0=time.time()
         multi = self.looks_multi(text)
+        if self.looks_room_ambiguous(text, self.room):
+            if last:
+                d=call_llm_ctx(text, last, room=self.room)
+                if d.get("type")=="correction":
+                    return dict(action=d["action"], actions=d.get("actions",[]),
+                                layer="L3地点·纠正", ms=(time.time()-t0)*1000, conf=0.0,
+                                is_correction=True, undo=d["undo"])
+                if d.get("actions"):
+                    if learn:
+                        self.store["examples"].append({"text":text,"action":d["actions"][0]})
+                        self.save()
+                    return dict(action=d["actions"][0], actions=d["actions"], layer="L3地点",
+                                ms=(time.time()-t0)*1000, conf=0.0, learned=bool(learn))
+            a3,acts=call_llm(text, room=self.room)
+            ms=(time.time()-t0)*1000
+            if a3 and learn:
+                self.store["examples"].append({"text":text,"action":a3}); self.save()
+            return dict(action=a3, actions=acts, layer="L3地点", ms=ms, conf=0.0,
+                        learned=bool(a3 and learn))
         if multi:
             ml=self.local_multi(text)
             if ml:

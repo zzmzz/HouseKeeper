@@ -64,6 +64,30 @@ def now_context(force=False):
     _cache.update(ts=time.time(), text=txt)
     return txt
 
+# 语音端所在房间 -> 该房间的"默认设备"。用户不点名房间时，就近原则。
+ROOM_DEFAULTS = {
+ "主卧": {"空调":"ac_bed_on/ac_bed_off","灯":"light_bed_on/light_bed_off",
+          "新风":"fresh_air_bed_on","窗帘":"bed_curtain_open/bed_curtain_close"},
+ "次卧": {"空调":"ac_second_on/ac_second_off","新风":"fresh_air_second_on"},
+ "客厅": {"空调":"ac_on/ac_off","灯":"light_living_on/light_living_off",
+          "新风":"fresh_air_living_on","窗帘":"curtain_open/curtain_close"},
+ "餐厅": {"灯":"dining_on/dining_off"},
+ "厨房": {"灯":"kitchen_on/kitchen_off"},
+ "玄关": {"灯":"entry_on/entry_off"},
+}
+
+def where(room=None):
+    """说话地点。用户不点名房间时，笼统指令应该落在这个房间。"""
+    if not room: return ""
+    lines=[f"⚠️ 用户此刻正在【{room}】对音箱说话。"]
+    d=ROOM_DEFAULTS.get(room)
+    if d:
+        lines.append(f"他没点名房间时（如『打开空调』『把灯关了』『开下新风』），"
+                     f"默认就是{room}的那台，不是客厅的：")
+        lines += [f"  {k} -> {v}" for k,v in d.items()]
+    lines.append(f"只有明确说了别的房间（『客厅空调』『次卧的灯』）才用那个房间的。")
+    return "\n".join(lines)
+
 def hint():
     """给模型的判读提示——季节决定『热/冷』的含义"""
     m = datetime.datetime.now().month

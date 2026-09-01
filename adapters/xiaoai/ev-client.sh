@@ -14,12 +14,15 @@
 EV_URL="${EV_URL:-http://192.168.8.202:8848}"
 LOG="/tmp/mico_aivs_lab/instruction.log"
 SESSION="${EV_SESSION:-xiaoai}"
+# 这台音箱在哪个房间。决定「打开空调」这种没点名房间的指令落在哪台设备上。
+ROOM="${EV_ROOM:-}"
 # 设了就只处理以它开头的话；留空 = 接管全部语音
 PREFIX="${EV_PREFIX:-}"
 STATE="/tmp/ev_last_dialog"
 
 echo "[E.V.] 客户端启动 -> $EV_URL"
 echo "[E.V.] $([ -n "$PREFIX" ] && echo "仅处理「$PREFIX」开头" || echo "接管全部语音")"
+[ -n "$ROOM" ] && echo "[E.V.] 本机位于：$ROOM（笼统指令默认落在这个房间）"
 
 # 说话（原生 TTS）
 speak() {
@@ -61,7 +64,7 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
 
   resp=$(curl -s -m 20 -X POST "$EV_URL/ask" \
     -H "Content-Type: application/json" \
-    -d "{\"text\":\"$spoken\",\"session\":\"$SESSION\"}" 2>/dev/null)
+    -d "{\"text\":\"$spoken\",\"session\":\"$SESSION\",\"room\":\"$ROOM\"}" 2>/dev/null)
 
   if [ -z "$resp" ]; then
     echo "[E.V.] 服务无响应，交回小爱"

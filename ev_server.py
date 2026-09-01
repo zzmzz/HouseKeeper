@@ -30,11 +30,16 @@ PORT = int(sys.argv[sys.argv.index("--port")+1]) if "--port" in sys.argv else 88
 _sessions = {}      # session -> EV（每个语音端一份上下文，纠正/确认互不干扰）
 _lock = threading.Lock()
 
-def get_ev(session):
+def get_ev(session, room=None):
+    """每个语音端一个 EV 实例。room = 这个端在哪个房间，
+    决定「打开空调」这类没点名房间的指令落在哪台设备上。"""
     with _lock:
-        if session not in _sessions:
-            _sessions[session] = EV(dry_run=DRY)
-        return _sessions[session]
+        ev = _sessions.get(session)
+        if ev is None:
+            ev = EV(dry_run=DRY); _sessions[session] = ev
+        if room and ev.u.room != room:
+            ev.u.room = room
+        return ev
 
 class H(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
@@ -48,6 +53,7 @@ class H(BaseHTTPRequestHandler):
         if self.path.startswith("/health"):
             ev = get_ev("_probe")
             return self._send({"ok": True, "capabilities": len(CAPS),
+                               "rooms": {k: v.u.room for k, v in _sessions.items() if v.u.room},
                                "thresh": ev.u.thresh, "dry_run": DRY,
                                "sessions": list(_sessions)})
         self._send({"error": "not found"}, 404)
@@ -64,7 +70,7 @@ class H(BaseHTTPRequestHandler):
         if not text:
             return self._send({"error": "text is required"}, 400)
         try:
-            r = get_ev(body.get("session", "default")).handle(text)
+            r = get_ev(body.get("session","default"), body.get("room")).handle(text)
         except Exception as e:
             return self._send({"error": str(e), "handled": False}, 500)
         self._send({
@@ -73,6 +79,7 @@ class H(BaseHTTPRequestHandler):
             "layer": r.get("layer"), "ms": r.get("total_ms"),
             "need_confirm": bool(r.get("need_confirm")),
             "handled": bool(r.get("action")),   # false = 不是家居指令，交回原助手
+            "room": get_ev(body.get("session","default")).u.room,
         })
 
     def log_message(self, *a): pass    # 静音默认访问日志
