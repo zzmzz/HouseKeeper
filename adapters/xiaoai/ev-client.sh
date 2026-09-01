@@ -104,7 +104,11 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
   fi
 
   echo "[E.V.] 听到：$spoken"
-  stop_native          # 第一次：尽早掐掉小爱的思考
+  # 抢在小爱开口之前打断。它在 is_final 之后**立刻**就 StartAnswer 并 Speak
+  # （IoT 指令走云端直连，比我们快），我们要等 E.V. 返回（~500ms）才打断的话，
+  # 它两句都说完了——实测出现过「正在打开窗帘。」「设备已经关啦」和我们的回答三段抢播。
+  # 所以这里连打三次、间隔 0.15 秒，覆盖它开口的那个窗口。
+  stop_native; sleep 0.15; stop_native; sleep 0.15; stop_native
 
   resp=$(curl -s -m 20 -X POST "$EV_URL/ask" \
     -H "Content-Type: application/json" \

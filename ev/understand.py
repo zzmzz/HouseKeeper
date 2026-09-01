@@ -168,6 +168,9 @@ class Understander:
     VERBS = ("开","关","拉","放","调","查","打开","关掉","关闭")
 
     def looks_multi(self, text):
+        # 无分隔符但有多个动词：「开窗帘关灯」
+        if len(text) >= 5 and len(self.split_by_verb(text)) >= 2:
+            return True
         if len(text) < 6: return False
         if any(k in text for k in self.MULTI_HINT): return True
         # 逗号/顿号分段，且不止一段含动词 -> 多意图
@@ -185,6 +188,30 @@ class Understander:
 
     SPLIT_RE = (r"[，,、；;]|\s{2,}|顺便|顺手|然后|还有|另外|同时|并且|以及|"
                 r"再把|再开|再关|再拉|一起|也别|也不要|也开|也关|也拉")
+
+    # 无分隔符的连续动词：「开窗帘关灯」「关灯开空调」——口语里很常见，
+    # 但没有逗号也没有连接词，靠 SPLIT_RE 切不开。用动词边界补一刀。
+    VERB_SPLIT = ("开", "关", "打开", "关掉", "关闭", "拉开", "拉上")
+
+    def split_by_verb(self, text):
+        """在第二个及之后的动词前切开。只在没切出多段时兜底用。"""
+        import re
+        # 找所有动词出现位置（跳过开头那个）
+        cuts = []
+        for m in re.finditer(r"(开|关|拉)", text):
+            i = m.start()
+            if i == 0: continue
+            if i < 2: continue                    # 太靠前，多半是同一个词
+            # 前一个字是动词的一部分（如"打开"）就不切
+            if text[i-1] in ("打", "别", "不", "没"): continue
+            cuts.append(i)
+        if not cuts: return [text]
+        segs, prev = [], 0
+        for c in cuts:
+            seg = text[prev:c]
+            if len(seg) >= 2: segs.append(seg); prev = c
+        segs.append(text[prev:])
+        return [x for x in segs if len(x) >= 2]
 
     def split_segments(self, text):
         import re
@@ -234,6 +261,8 @@ class Understander:
           否则切段逐段问——单动作它有 96% 准确率，正是它擅长的。
         """
         segs = self.split_segments(text)
+        if len(segs) < 2:
+            segs = self.split_by_verb(text)        # 没有分隔符时按动词边界切
         if len(segs) < 2:
             return None
         whole_pol = self._polarity(text)
