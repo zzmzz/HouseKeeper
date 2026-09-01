@@ -23,11 +23,33 @@
 > 92% 还是被低估的：14 条错题里有 3 条是 `fresh_air_off` vs `all_fresh_air_off`
 > 这种**执行结果完全一样**的重复能力，1 条是考卷答案本身写错了。按实际可用性约 95%。
 
-## 部署
+## 部署（pm2 常驻）
 
 ```bash
-# Mac mini 上
-python3 mlx_server.py --port 8850
+# Mac mini 上，一次性
+mkdir -p ~/code/ev-mlx
+# 传 mlx_server.py、ecosystem.config.js、adapters-0.6b/ 过去
+cd ~/code/ev-mlx && pm2 start ecosystem.config.js && pm2 save
+```
+
+**ecosystem.config.js 里有三个坑，都是实测踩出来的**：
+
+1. **必须用绝对路径指定解释器** `/usr/bin/python3`。
+   机器上有两个 python3：Homebrew 的 3.14（PATH 里靠前，没装 mlx_lm）和系统的 3.9（装了）。
+   靠 PATH 猜会选中错的，报 `ModuleNotFoundError: mlx_lm`。
+2. **不要设 PYTHONPATH**，会破坏 mlx.core 的 C 扩展加载，
+   报 `module 'mlx.core' has no attribute 'float32'`。
+3. **不要自定义 log 路径**，用 pm2 默认的 `~/.pm2/logs`。
+   （这台机器的 `~/logs` 属于 root，写不进去。）
+
+> ⚠️ 这台机器的 pm2 **没有配开机自启**（`launchctl list | grep pm2` 为空），
+> 重启后包括 cccodex 在内的所有 pm2 进程都不会自动恢复。
+> 要配需要 sudo：`pm2 startup launchd -u z --hp /Users/z` 然后按提示执行那行 sudo 命令。
+
+调试用：
+```bash
+python3 mlx_server.py --port 8850     # 前台跑
+pm2 logs ev-mlx                        # 看日志
 ```
 
 E.V. 端设环境变量即可启用：
