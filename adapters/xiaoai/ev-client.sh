@@ -47,6 +47,21 @@ wake_up() {
   ubus call pnshelper event_notify '{"src":1,"event":0}' >/dev/null 2>&1
 }
 
+# 等 TTS 真的播完。
+# 坑：text_to_speech 是**异步**的，调用立刻返回；instruction.log 里的
+# FinishSpeakStream 也只表示"流传输完"（1 秒内就出现），不是"播放完"。
+# 唯一可靠的信号是 mphelper mute_stat：播放中=1，空闲=0。
+# 播完之前就 wake_up 没用——语音一结束小爱会自己把麦关掉。
+wait_speak_done() {
+  i=0
+  while [ $i -lt 30 ]; do            # 最多等 15 秒
+    sleep 0.5
+    st=$(mphelper mute_stat 2>/dev/null | tr -d " \n")
+    case "$st" in *0*) return 0 ;; esac
+    i=$((i+1))
+  done
+}
+
 tail -F "$LOG" 2>/dev/null | while read -r line; do
   # 只要最终识别结果
   echo "$line" | grep -q '"name":"RecognizeResult"' || continue
@@ -93,11 +108,11 @@ tail -F "$LOG" 2>/dev/null | while read -r line; do
     sleep 0.3
     speak "$reply"
     # 说完重新开麦，用户可以直接接着说（纠正、追问都不用再喊唤醒词）
-    [ "$KEEP_MIC" = "1" ] && { sleep 0.2; wake_up; }
+    [ "$KEEP_MIC" = "1" ] && { wait_speak_done; sleep 0.3; wake_up; }
   else
     # 不交回小爱了——做不到就如实说，缺什么能力由 daily loop 的缺口队列去补
     echo "[E.V.] 做不到：$reply"
     speak "${reply:-这个我还做不了}"
-    [ "$KEEP_MIC" = "1" ] && { sleep 0.2; wake_up; }
+    [ "$KEEP_MIC" = "1" ] && { wait_speak_done; sleep 0.3; wake_up; }
   fi
 done
