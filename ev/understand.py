@@ -270,11 +270,18 @@ class Understander:
             if a not in seen: seen.add(a); out.append(a)
         return out if len(out)>=2 else None
 
+    # 确定性判据：分类器学不会的、但规则一句话能说清的，直接兜底。
+    # 例：查状态时句子里有"灯"就是查灯，不管前面有没有"现在""家里"这些噪音词。
+    def rule_fix(self, action, text):
+        if action in ("device_state","lights_state"):
+            return "lights_state" if "灯" in text else "device_state"
+        return action
+
     def understand(self, text, learn=True, last=None):
         t0=time.time()
         multi = self.looks_multi(text)
         if text in self.store["l1"] and not multi:
-            a = self.store["l1"][text]
+            a = self.rule_fix(self.store["l1"][text], text)
             a, moved = CTX.localize(a, text, self.room)     # 就近改写，查表 0ms
             return dict(action=a, actions=[a], layer="L1"+("·就近" if moved else ""),
                         ms=(time.time()-t0)*1000, conf=1.0)
@@ -291,6 +298,7 @@ class Understander:
                 # 本地就认出这不归我管 —— 不必再问大模型，直接交回原助手
                 return dict(action=None, layer="L2", ms=(time.time()-t0)*1000,
                             conf=conf, out_of_scope=True)
+            act = self.rule_fix(act, text)
             act, moved = CTX.localize(act, text, self.room)
             return dict(action=act, actions=[act], layer="L2"+("·就近" if moved else ""),
                         ms=(time.time()-t0)*1000, conf=conf)
@@ -317,6 +325,7 @@ class Understander:
             # 注意：这里【不】重训。980 条样例重训一次要 7.6s，会卡死用户等待。
             # 重训是离线蒸馏(distill.py)的活。运行时只负责记录。
         if a3:
+            a3 = self.rule_fix(a3, text)
             a3, moved = CTX.localize(a3, text, self.room)
             acts=[CTX.localize(x, text, self.room)[0] for x in acts] or ([a3] if a3 else [])
         return dict(action=a3, actions=acts, layer="L3", ms=ms, conf=conf,
