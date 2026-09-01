@@ -64,6 +64,8 @@ def teacher_prompt():
             "\n【可用动作】\n" + _action_list() +
             "\n\n先想：主人是在『询问了解』还是『要求执行』？是『热』还是『冷』？是一件事还是一整套？"
             + GUARD +
+            '\n\n如果这句话**不属于**上面任何家居能力（闲聊/百科/股票/笑话/音箱自身控制等），'
+            '输出 {"actions":["out_of_scope"]} —— 它会被交回给原来的语音助手，这是正确做法。'
             '\n\n用户一句话可能包含多个意图（如「把灯关了顺便开下空调」）。'
             '\n只输出 JSON：{"actions":["<id>", ...]}，按执行顺序排列；'
             '一个意图就一个元素；都不匹配就 {"actions":[]}。不要解释。')
@@ -75,6 +77,7 @@ def runtime_prompt():
 
 
 META = "meta_correction"
+OOS  = "out_of_scope"   # 不是家居指令，交回原助手
 
 def call_llm_ctx(text, last, timeout=40):
     """带上一轮上下文：一次调用同时判断『是纠正还是新指令』+『该做什么』"""
@@ -116,6 +119,7 @@ def call_llm(text, timeout=40):
     try:
         d=_LLM.parse_json(t)
         acts=d.get("actions") or ([d["action"]] if d.get("action") else [])
+        if acts and acts[0]==OOS: return None, []       # 不归我管
         acts=[a for a in acts if a in CAPS]
         return (acts[0] if acts else None), acts
     except Exception:
@@ -282,6 +286,10 @@ class Understander:
                             ms=(time.time()-t0)*1000, conf=conf, is_correction=True, undo=d["undo"])
             if act==META:
                 return dict(action=None, layer="L2", ms=(time.time()-t0)*1000, conf=conf)
+            if act==OOS:
+                # 本地就认出这不归我管 —— 不必再问大模型，直接交回原助手
+                return dict(action=None, layer="L2", ms=(time.time()-t0)*1000,
+                            conf=conf, out_of_scope=True)
             return dict(action=act, layer="L2", ms=(time.time()-t0)*1000, conf=conf)
         # 本地拿不准：有上下文就让大模型一次判断"纠正还是新指令"+动作
         if last:

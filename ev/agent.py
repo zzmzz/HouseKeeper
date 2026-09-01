@@ -85,7 +85,9 @@ class EV:
 
         # —— 正常一轮（u 上面已算）——
         acts=u.get("actions") or ([u["action"]] if u.get("action") else [])
-        if not acts:
+        if u.get("out_of_scope"):
+            r={"ok":True,"reply":"这个不归我管","detail":"out_of_scope","out_of_scope":True}
+        elif not acts:
             r={"ok":False,"reply":"这个我还不会，要不换个说法？","detail":None}
         elif len(acts)==1:
             r=execute(acts[0], dry_run=self.dry)
@@ -102,7 +104,7 @@ class EV:
                  action=u["action"], actions=acts, layer=u["layer"], conf=round(u.get("conf") or 0,3),
                  device=r.get("device"), entity=r.get("entity"),
                  understand_ms=round(u["ms"]), total_ms=round((time.time()-t0)*1000),
-                 ok=r["ok"], reply=r["reply"])
+                 ok=r["ok"], reply=r["reply"], out_of_scope=bool(r.get("out_of_scope")))
         self._log(rec)
         self.last=dict(text=text, action=u["action"], device=r.get("device"))
         rec["detail"]=r.get("detail")

@@ -8,6 +8,7 @@
 import json, pathlib, urllib.request, warnings
 warnings.filterwarnings("ignore")
 from capabilities import CAPS, action_list_for_teacher
+OOS='out_of_scope'
 from understand import ENV, HOME_CTX, Understander
 
 BASE = pathlib.Path(__file__).parent.parent
