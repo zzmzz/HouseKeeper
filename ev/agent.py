@@ -11,8 +11,8 @@ BASE = pathlib.Path(__file__).parent.parent
 LOG  = BASE / "traces.jsonl"
 
 class EV:
-    def __init__(self, dry_run=True, thresh=0.35, learn=True):
-        self.u=Understander(thresh); self.dry=dry_run; self.learn=learn
+    def __init__(self, dry_run=True, learn=True):
+        self.u=Understander(); self.dry=dry_run; self.learn=learn
         self.last=None          # 上一轮：{text, action, device, ...}
         self.pending=None       # 待确认的高危动作
     def _log(self, rec):
@@ -113,9 +113,12 @@ class EV:
     def learn_correction(self, text, right_action):
         self.u.store["examples"]=[e for e in self.u.store["examples"] if e["text"]!=text]
         self.u.store["examples"].append({"text":text,"action":right_action})
+        self.u.store["l1"][text]=right_action        # 立刻生效，不用等夜里重训
         for k,v in list(self.u.store["l1"].items()):
             if k==text and v!=right_action: self.u.store["l1"][k]=right_action
-        self.u.save(); self.u.retrain()
+        self.u.save()
+        # 不在这里重训——0.6B 的重训要 4.5 分钟，放 daily loop 里做。
+        # 纠正的即时生效靠 L1（用户亲口确认的，配得上最高优先级）。
         try:
             import regression; regression.add_case(text, right_action, src="correction")
         except Exception: pass

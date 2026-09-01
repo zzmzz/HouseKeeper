@@ -89,9 +89,11 @@ def run(u=None, verbose=True, split=None):
     ok=0; fails=[]
     for it in items:
         if it["text"] in u.store["l1"]:
-            pred=u.store["l1"][it["text"]]; conf=1.0
+            pred, conf = u.store["l1"][it["text"]], 1.0
         else:
-            pred,conf=u.student.predict(it["text"])
+            from understand import mlx_predict
+            acts, _ = mlx_predict(it["text"])
+            pred, conf = (acts[0] if acts else None), (0.9 if acts else 0.0)
         if pred==it["action"]: ok+=1
         else: fails.append((it["text"],it["action"],pred,round(conf,2),it.get("src")))
     acc=ok/len(items)*100

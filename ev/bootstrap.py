@@ -157,41 +157,10 @@ def gen_regression(run, per=6):
 
 # ---------- 阶段 5：训练 ----------
 def train(run):
-    u = Understander()
-    u.retrain(use_cache=False)
-    run.metric("类别数", len(u.student.labels or []))
-    return u
+    """训练学生模型：微调 0.6B（跑在 Mac mini 上）"""
+    import retrain_lora
+    return retrain_lora.run_all(run)
 
-# ---------- 阶段 6：自动选阈值 ----------
-def tune_threshold(run, u):
-    items = regression.load("gate")
-    if not items:
-        run.note("考卷为空 —— 造题阶段可能全失败了，请检查上面的报错。用保守默认 0.40")
-        return 0.40, []
-    preds=[]
-    for it in items:
-        if it["text"] in u.store["l1"]: p,c = u.store["l1"][it["text"]], 1.0
-        else: p,c = u.student.predict(it["text"])
-        preds.append((p==it["action"], c))
-    curve=[]
-    for th in [0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55]:
-        hi=[ok for ok,c in preds if c>=th]
-        n=len(hi); acc=(sum(hi)/n*100) if n else 100.0
-        curve.append({"th":th,"hit":round(n/len(preds)*100,1),"acc":round(acc,1)})
-    # 甜点：本地接住越多越快，但答错要付纠正代价。
-    # 记分 = 接住率 - 错误率×K。K=6 表示"答错 1 次的代价 ≈ 少接住 6 次"
-    # （答错要用户纠正、可能已经动了设备；少接住只是慢 1 秒）
-    K = 6
-    for c in curve: c["score"] = round(c["hit"] - (100-c["acc"])*K, 1)
-    best = max(curve, key=lambda x: x["score"])
-    run._emit("curve", name="threshold", points=curve)
-    for c in curve:
-        run.note(f"阈值 {c['th']:.2f}  本地接住 {c['hit']:>5.1f}%  答对 {c['acc']:>5.1f}%  记分 {c['score']:>6.1f}"
-                 + ("   ← 选它" if c["th"]==best["th"] else ""))
-    run.metric("选定阈值", best["th"], "", f"接住 {best['hit']}%，答对 {best['acc']}%")
-    return best["th"], curve
-
-# ---------- 阶段 7：审计 L1 ----------
 def audit_l1(run):
     import audit_l1 as A1
     try:
@@ -207,28 +176,31 @@ def audit_l1(run):
     return r+f
 
 # ---------- 阶段 8：验收 ----------
-def evaluate(run, thresh):
-    u = Understander(thresh)
+def evaluate(run):
+    """验收：考卷 vs 教材，以及本地接住率。
+    没有阈值了——0.6B 的"弃权"是 id 白名单：输出的 id 不在能力表里就降级云端。"""
+    u = Understander()
     g = regression.run(u, verbose=False, split="gate")
     t = regression.run(u, verbose=False, split="train")
     run.metric("考卷（从未训练）", f"{g['acc']:.0f}%", "", f"{g['ok']}/{g['total']}")
     run.metric("教材（训练过）", f"{t['acc']:.0f}%")
-    gap = t["acc"]-g["acc"]
+    gap = t["acc"] - g["acc"]
     run.metric("过拟合差距", f"{gap:.0f}", "pt", "差距大 = 只是背下来了")
     items = regression.load("gate")
-    hi=[]; lo=0
+    from understand import mlx_predict
+    hit = ok = 0
     for it in items:
-        if it["text"] in u.store["l1"]: p,c = u.store["l1"][it["text"]],1.0
-        else: p,c = u.student.predict(it["text"])
-        if c>=thresh: hi.append(p==it["action"])
-        else: lo+=1
-    if hi:
-        run.metric("本地接住", f"{len(hi)/len(items)*100:.0f}%", "",
-                   f"其中答对 {sum(hi)/len(hi)*100:.0f}%")
-    run.metric("弃权降级", f"{lo/len(items)*100:.0f}%", "", "宁可多走大模型，不自信做错事")
-    return {"gate":g["acc"], "train":t["acc"], "gap":gap,
-            "local_hit":round(len(hi)/len(items)*100,1) if items else 0,
-            "local_acc":round(sum(hi)/len(hi)*100,1) if hi else 0}
+        if it["text"] in u.store["l1"]:
+            hit += 1; ok += (u.store["l1"][it["text"]] == it["action"]); continue
+        acts, _ = mlx_predict(it["text"])
+        if acts:
+            hit += 1; ok += (acts[0] == it["action"])
+    n = len(items) or 1
+    run.metric("本地接住", f"{hit/n*100:.0f}%", "", f"其中答对 {ok/hit*100:.0f}%" if hit else "")
+    run.metric("降级云端", f"{(n-hit)/n*100:.0f}%", "", "模型编造 id 或服务不可用时")
+    return {"gate": g["acc"], "train": t["acc"], "gap": gap,
+            "local_hit": round(hit/n*100, 1),
+            "local_acc": round(ok/hit*100, 1) if hit else 0}
 
 def _lock(name):
     """单实例锁：并发跑会互相覆盖 store.json 和题库，结果不可信"""
@@ -263,15 +235,7 @@ def main():
         gen_training(r, per)
     with run.stage("训练本地小模型") as r:
         u = train(r)
-    with run.stage("自动选阈值", "跑取舍曲线，不拍脑袋") as r:
-        thresh, curve = tune_threshold(r, u)
-    with run.stage("审计 L1 规则表", "最危险的一层：最高优先级且不会弃权") as r:
-        audit_l1(r)
-    with run.stage("验收") as r:
-        res = evaluate(r, thresh)
-
-    (BASE/"tuned.json").write_text(json.dumps({"thresh":thresh},ensure_ascii=False),"utf-8")
-    run.finish(**res, thresh=thresh)
+    run.finish(**res)
     print("\n下一步：python3 agent.py  开始用；python3 daily.py  日常自我改进")
 
 if __name__=="__main__": main()

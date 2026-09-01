@@ -98,41 +98,32 @@ def audit_poison(run):
         run.note("未发现错误标注")
     return n
 
-def distill(run, new):
-    """蒸馏 + 晋升门槛：考卷不许变差才准换"""
-    u_old = Understander()
-    before = regression.run(u_old, verbose=False, split="gate")
-    before_tr = regression.run(u_old, verbose=False, split="train")
-    run.metric("蒸馏前考卷", f"{before['acc']:.0f}%", "", f"教材 {before_tr['acc']:.0f}%")
+def learn_and_retrain(run, new):
+    """把新学的说法并进样例库 -> 重训 0.6B -> 考卷不许变差才准换
 
+    以前这里蒸馏的是 n-gram 分类器（已删除，两个学习器要各自维护、
+    各自有晋升门槛，复杂度翻倍却只换来一个备胎）。现在学生只有一个：微调 0.6B。
+    """
     store = json.loads(STORE.read_text("utf-8"))
-    hard  = [{"text":t,"action":g,"src":"hard"} for t,g,p,c,s in before_tr["fails"]]
     gate  = {i["text"] for i in regression.load("gate")}
-    merged = store["examples"] + new + hard
-    seen=set(); ex=[]
-    for e in merged:
-        if e["text"] in gate: continue          # 铁律
-        if e["text"] not in seen: seen.add(e["text"]); ex.append(e)
-
-    cand = {"l1":store["l1"], "examples":ex}
-    tmp = BASE/"store.candidate.json"; tmp.write_text(json.dumps(cand,ensure_ascii=False,indent=2),"utf-8")
-    import understand as U
-    orig=U.STORE; U.STORE=tmp
-    try: u_new=Understander()
-    finally: U.STORE=orig
-    after = regression.run(u_new, verbose=False, split="gate")
-    run.metric("蒸馏后考卷", f"{after['acc']:.0f}%", "", f"样例 {len(store['examples'])} -> {len(ex)}")
-
-    if after["acc"] >= before["acc"]:
-        stamp=datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    seen  = {e["text"] for e in store["examples"]}
+    added = 0
+    for e in new:
+        if e["text"] in gate or e["text"] in seen:    # 铁律：考卷不进训练
+            continue
+        store["examples"].append(e); seen.add(e["text"]); added += 1
+    if added:
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         shutil.copy(STORE, MODELS/f"store-{stamp}.bak.json")
-        STORE.write_text(json.dumps(cand,ensure_ascii=False,indent=2),"utf-8")
-        tmp.unlink(missing_ok=True)
-        run.note(f"✅ 晋升 {before['acc']:.0f}% -> {after['acc']:.0f}%（旧版已备份，可回滚）")
-        return True, before["acc"], after["acc"]
-    tmp.unlink(missing_ok=True)
-    run.note(f"❌ 回滚：{after['acc']:.0f}% 不如 {before['acc']:.0f}%，不换")
-    return False, before["acc"], after["acc"]
+        STORE.write_text(json.dumps(store, ensure_ascii=False, indent=2), "utf-8")
+    run.metric("并入样例", added, "条", f"样例总数 {len(store['examples'])}")
+    if not added:
+        run.note("没有新样例，跳过重训")
+        return False, 0, 0
+
+    import retrain_lora
+    r = retrain_lora.run_all(run)      # 内含晋升门槛：考卷不许变差
+    return r.get("promoted", False), r.get("before", 0), r.get("after", 0)
 
 def _lock(name):
     """单实例锁：并发跑会互相覆盖 store.json 和题库，结果不可信"""
@@ -166,14 +157,8 @@ def main():
 
     with run.stage("质检已学标注", "抓被固化的错误") as r:
         audit_poison(r)
-    if "--lora" in sys.argv:
-        with run.stage("重训微调小模型", "把新学的说法练进 0.6B 权重（Mac mini）") as r:
-            import retrain_lora
-            try: retrain_lora.run_all(r)
-            except Exception as e: r.note(f"重训失败（不影响其余阶段）：{e}")
-
-    with run.stage("蒸馏 + 晋升门槛", "考卷不许变差才准换") as r:
-        promoted, b, a = distill(r, new)
+    with run.stage("学习 + 重训小模型", "并入新样例，重训 0.6B，考卷不许变差才准换") as r:
+        promoted, b, a = learn_and_retrain(r, new)
     run.finish(promoted=promoted, before=b, after=a, learned=len(new))
 
 if __name__=="__main__": main()

@@ -79,7 +79,7 @@ async function health(){
   try{
     const d=await (await fetch('/health')).json();
     document.getElementById('st').innerHTML=
-      `能力 <b>${d.capabilities}</b> 个　·　阈值 <b>${d.thresh}</b>　·　`+
+      `能力 <b>${d.capabilities}</b> 个　·　L2 <b>${d.l2||"-"}</b>　·　`+
       (d.dry_run?'<b>dry-run</b>（不会真动设备）':'<b style="color:var(--bad)">真实控制模式</b>')+
       (Object.keys(d.rooms||{}).length?`　·　已知位置 ${JSON.stringify(d.rooms)}`:'');
   }catch(e){document.getElementById('st').textContent='服务连不上：'+e}

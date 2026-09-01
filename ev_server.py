@@ -6,7 +6,7 @@
                  "device": "浴霸", "layer": "L2", "ms": 3,
                  "need_confirm": false, "handled": true}
 
-    GET  /health -> {"ok": true, "capabilities": 55, "thresh": 0.35}
+    GET  /health -> {"ok": true, "capabilities": 65, "model": "mlx" 或 "cloud"}
 
 handled=false 表示 E.V. 管不了这句话（不是家居指令），
 语音端应该把它交回原来的助手处理。
@@ -91,9 +91,11 @@ class H(BaseHTTPRequestHandler):
             return self._send(_daily_status())
         if self.path.startswith("/health"):
             ev = get_ev("_probe")
+            import understand as _U
             return self._send({"ok": True, "capabilities": len(CAPS),
+                               "l2": ("mlx:" + _U.MLX_URL) if _U.MLX_URL else "未配置（全走云端）",
                                "rooms": {k: v.u.room for k, v in _sessions.items() if v.u.room},
-                               "thresh": ev.u.thresh, "dry_run": DRY,
+                               "dry_run": DRY,
                                "sessions": list(_sessions)})
         self._send({"error": "not found"}, 404)
 

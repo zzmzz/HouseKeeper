@@ -134,11 +134,11 @@ MLX_URL = _os.environ.get("EV_MLX_URL", "").strip()   # 空 = 不启用，退回
 _mlx_down_until = 0.0
 
 def mlx_predict(text, timeout=6):
-    """调 Mac mini 上的微调 0.6B。返回 (action, ms) 或 (None, ms)。
+    """调 Mac mini 上的微调 0.6B。返回 (actions列表, ms)，空列表=不确定/不可用。
     服务不可达时短路 60 秒，避免每次请求都干等超时。"""
     global _mlx_down_until
     if not MLX_URL or time.time() < _mlx_down_until:
-        return None, 0
+        return [], 0
     t0=time.time()
     try:
         body=json.dumps({"text":text}).encode()
@@ -147,71 +147,19 @@ def mlx_predict(text, timeout=6):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             d=json.loads(r.read())
         acts=[a for a in (d.get("actions") or []) if a in CAPS]   # id 白名单：编造的直接丢弃
-        return (acts[0] if acts else None), (time.time()-t0)*1000
+        return acts, (time.time()-t0)*1000
     except Exception:
         _mlx_down_until = time.time()+60
-        return None, (time.time()-t0)*1000
-
-# ---------- 兜底小模型：字符 n-gram + 逻辑回归（MLX 不可用时降级用）----------
-def ngrams(s,n=(1,2,3)):
-    s=re.sub(r"\s+","",s); o=[]
-    for k in n: o+=[s[i:i+k] for i in range(len(s)-k+1)]
-    return o
-
-class Student:
-    """蒸馏出来的本地小模型。confidence 低于阈值就弃权，交给大模型。"""
-    def __init__(self, thresh=0.35):
-        self.thresh=thresh; self.clf=None; self.vocab=None; self.labels=None
-    def _tf(self, texts):
-        M=np.zeros((len(texts),len(self.vocab)),dtype=np.float32)
-        for r,t in enumerate(texts):
-            for g in ngrams(t):
-                j=self.vocab.get(g)
-                if j is not None: M[r,j]+=1
-        return M/(np.linalg.norm(M,axis=1,keepdims=True)+1e-9)
-    def fit(self, pairs):
-        from sklearn.linear_model import LogisticRegression
-        texts=[t for t,_ in pairs]; acts=[a for _,a in pairs]
-        self.labels=sorted(set(acts)); L={a:i for i,a in enumerate(self.labels)}
-        v={}
-        for t in texts:
-            for g in set(ngrams(t)): v[g]=1
-        self.vocab={g:i for i,g in enumerate(sorted(v))}
-        if len(self.labels)<2: self.clf=None; return self
-        self.clf=LogisticRegression(max_iter=3000,C=8.0,class_weight='balanced').fit(self._tf(texts),
-                                                             np.array([L[a] for a in acts]))
-        return self
-    def predict(self, text):
-        if self.clf is None: return None, 0.0
-        p=self.clf.predict_proba(self._tf([text]))[0]
-        i=int(p.argmax()); return self.labels[i], float(p[i])
+        return [], (time.time()-t0)*1000
 
 class Understander:
-    def __init__(self, thresh=0.35, room=None):
+    def __init__(self, room=None):
         self.room=room
         self.store=json.loads(STORE.read_text("utf-8")) if STORE.exists() else {"l1":{}, "examples":[]}
-        self.student=Student(thresh); self.thresh=thresh
-        self.retrain()
     def pairs(self):
         return [(t,a) for t,a in self.store["l1"].items()] + \
                [(e["text"],e["action"]) for e in self.store["examples"]]
-    def retrain(self, use_cache=True):
-        """训练模型。带缓存：数据没变就直接加载，省掉 7-9s。"""
-        import hashlib, pickle
-        p=self.pairs()
-        if not p: return
-        sig=hashlib.md5(json.dumps(sorted(p),ensure_ascii=False).encode()).hexdigest()[:12]
-        cache=BASE/"models"/f"student-{sig}.pkl"
-        if use_cache and cache.exists():
-            try:
-                with cache.open("rb") as f: self.student=pickle.load(f)
-                return
-            except Exception: pass
-        self.student.fit(p)
-        cache.parent.mkdir(exist_ok=True)
-        try:
-            with cache.open("wb") as f: pickle.dump(self.student,f)
-        except Exception: pass
+
     def save(self):
         STORE.write_text(json.dumps(self.store,ensure_ascii=False,indent=2),"utf-8")
     # 疑似多意图的连接词：L2 是单标签分类器，遇到这些必须让 L3 拆
@@ -263,38 +211,7 @@ class Understander:
         if has_open:  return "open"
         return None
 
-    def local_multi(self, text):
-        """L2 做多意图：切段逐段分类。
-        关键：切完的段可能丢了动词（『开浴霸和热水器』-> 段『热水器』没有"开"），
-        所以要把整句的极性补回去，并且极性对不上就弃权交给 L3。"""
-        segs=self.split_segments(text)
-        if len(segs)<2: return None
-        whole_pol=self._polarity(text)
-        # 段比整句短、信息少，同样的置信度可信度更低 -> 阈值抬高
-        seg_thresh = max(self.thresh + 0.25, 0.65)
-        acts=[]
-        for sg in segs:
-            seg_pol=self._polarity(sg)
-            if seg_pol is None and whole_pol:
-                sg = ("开" if whole_pol=="open" else "关") + sg     # 补回动词再分类
-                seg_pol = whole_pol
-            if sg in self.store["l1"]:
-                a,c=self.store["l1"][sg],1.0
-            else:
-                a,c=self.student.predict(sg)
-            if not a or a==META or c < seg_thresh:
-                return None            # 有一段没把握（含"关灯"这类泛指）-> 整句交给大模型
-            # 极性校验：段里说"开"，却判成 *_off（或反之）-> 不可信，交给 L3
-            pol = seg_pol or whole_pol
-            if pol=="open" and a.endswith(("_off","_close")): return None
-            if pol=="close" and a.endswith(("_on","_open")):  return None
-            acts.append(a)
-        seen=set(); out=[]
-        for a in acts:
-            if a not in seen: seen.add(a); out.append(a)
-        return out if len(out)>=2 else None
-
-    # 确定性判据：分类器学不会的、但规则一句话能说清的，直接兜底。
+    # 确定性判据：模型学不会、但规则一句话能说清的，直接兜底。
     # 例：查状态时句子里有"灯"就是查灯，不管前面有没有"现在""家里"这些噪音词。
     def rule_fix(self, action, text):
         if action in ("device_state","lights_state"):
@@ -310,31 +227,18 @@ class Understander:
             return dict(action=a, actions=[a], layer="L1"+("·就近" if moved else ""),
                         ms=(time.time()-t0)*1000, conf=1.0)
         # L2：微调 0.6B（Mac mini）。id 白名单已在 mlx_predict 里过滤，编造的会返回 None
-        if not multi:
-            ma, mms = mlx_predict(text)
-            if ma:
-                ma = self.rule_fix(ma, text)
-                ma, moved = CTX.localize(ma, text, self.room)
-                return dict(action=ma, actions=[ma], layer="L2·模型"+("·就近" if moved else ""),
-                            ms=(time.time()-t0)*1000, conf=0.9)
-        # L2 降级：MLX 不可用时用内置 n-gram
-        act,conf=self.student.predict(text)
-        if act and conf>=self.thresh and not multi:
-            # 本地就认出这是"用户在纠正" -> 交给带上下文的大模型解析该改成什么
-            if act==META and last:
-                d=call_llm_ctx(text,last)
-                return dict(action=d["action"], actions=d.get("actions",[]), layer="L2→纠正",
-                            ms=(time.time()-t0)*1000, conf=conf, is_correction=True, undo=d["undo"])
-            if act==META:
-                return dict(action=None, layer="L2", ms=(time.time()-t0)*1000, conf=conf)
-            if act==OOS:
-                # 本地就认出这不归我管 —— 不必再问大模型，直接交回原助手
-                return dict(action=None, layer="L2", ms=(time.time()-t0)*1000,
-                            conf=conf, out_of_scope=True)
-            act = self.rule_fix(act, text)
-            act, moved = CTX.localize(act, text, self.room)
-            return dict(action=act, actions=[act], layer="L2"+("·就近" if moved else ""),
-                        ms=(time.time()-t0)*1000, conf=conf)
+        macts, mms = mlx_predict(text)
+        if macts and not (multi and len(macts) < 2):
+            # 多意图：模型直接输出 actions 数组；只出一个但看着像多意图 -> 交给 L3 拆
+            macts = [self.rule_fix(a, text) for a in macts]
+            moved = False
+            out = []
+            for a in macts:
+                a2, mv = CTX.localize(a, text, self.room); moved = moved or mv; out.append(a2)
+            return dict(action=out[0], actions=out,
+                        layer="L2·模型" + ("多" if len(out) > 1 else "") + ("·就近" if moved else ""),
+                        ms=(time.time()-t0)*1000, conf=0.9)
+        act, conf = None, 0.0     # 没有 n-gram 了：MLX 不可用就直接落到 L3
         # 本地拿不准：有上下文就让大模型一次判断"纠正还是新指令"+动作
         if last:
             d=call_llm_ctx(text,last); ms=(time.time()-t0)*1000
