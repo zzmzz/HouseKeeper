@@ -128,7 +128,31 @@ def call_llm(text, room=None, timeout=40):
     except Exception:
         return None, []
 
-# ---------- 本地小模型：字符 n-gram + 逻辑回归，带弃权 ----------
+# ---------- 微调小模型（跑在 Mac mini 上，MLX）----------
+import os as _os
+MLX_URL = _os.environ.get("EV_MLX_URL", "").strip()   # 空 = 不启用，退回 n-gram
+_mlx_down_until = 0.0
+
+def mlx_predict(text, timeout=6):
+    """调 Mac mini 上的微调 0.6B。返回 (action, ms) 或 (None, ms)。
+    服务不可达时短路 60 秒，避免每次请求都干等超时。"""
+    global _mlx_down_until
+    if not MLX_URL or time.time() < _mlx_down_until:
+        return None, 0
+    t0=time.time()
+    try:
+        body=json.dumps({"text":text}).encode()
+        req=urllib.request.Request(MLX_URL.rstrip("/")+"/predict", data=body,
+                                   headers={"Content-Type":"application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            d=json.loads(r.read())
+        acts=[a for a in (d.get("actions") or []) if a in CAPS]   # id 白名单：编造的直接丢弃
+        return (acts[0] if acts else None), (time.time()-t0)*1000
+    except Exception:
+        _mlx_down_until = time.time()+60
+        return None, (time.time()-t0)*1000
+
+# ---------- 兜底小模型：字符 n-gram + 逻辑回归（MLX 不可用时降级用）----------
 def ngrams(s,n=(1,2,3)):
     s=re.sub(r"\s+","",s); o=[]
     for k in n: o+=[s[i:i+k] for i in range(len(s)-k+1)]
@@ -285,6 +309,15 @@ class Understander:
             a, moved = CTX.localize(a, text, self.room)     # 就近改写，查表 0ms
             return dict(action=a, actions=[a], layer="L1"+("·就近" if moved else ""),
                         ms=(time.time()-t0)*1000, conf=1.0)
+        # L2：微调 0.6B（Mac mini）。id 白名单已在 mlx_predict 里过滤，编造的会返回 None
+        if not multi:
+            ma, mms = mlx_predict(text)
+            if ma:
+                ma = self.rule_fix(ma, text)
+                ma, moved = CTX.localize(ma, text, self.room)
+                return dict(action=ma, actions=[ma], layer="L2·模型"+("·就近" if moved else ""),
+                            ms=(time.time()-t0)*1000, conf=0.9)
+        # L2 降级：MLX 不可用时用内置 n-gram
         act,conf=self.student.predict(text)
         if act and conf>=self.thresh and not multi:
             # 本地就认出这是"用户在纠正" -> 交给带上下文的大模型解析该改成什么

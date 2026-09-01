@@ -166,6 +166,12 @@ def main():
 
     with run.stage("质检已学标注", "抓被固化的错误") as r:
         audit_poison(r)
+    if "--lora" in sys.argv:
+        with run.stage("重训微调小模型", "把新学的说法练进 0.6B 权重（Mac mini）") as r:
+            import retrain_lora
+            try: retrain_lora.run_all(r)
+            except Exception as e: r.note(f"重训失败（不影响其余阶段）：{e}")
+
     with run.stage("蒸馏 + 晋升门槛", "考卷不许变差才准换") as r:
         promoted, b, a = distill(r, new)
     run.finish(promoted=promoted, before=b, after=a, learned=len(new))
