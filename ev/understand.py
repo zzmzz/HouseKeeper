@@ -163,16 +163,6 @@ class Student:
         i=int(p.argmax()); return self.labels[i], float(p[i])
 
 class Understander:
-    # 笼统的设备词：说话地点不同、答案就不同，本地 L2 不知道地点，必须交给 L3
-    AMBIGUOUS = ("空调","灯","新风","窗帘","帘")
-    ROOM_WORDS = ("客厅","主卧","次卧","卧室","餐厅","厨房","玄关","进门","过道","干区","阳台","客房")
-
-    def looks_room_ambiguous(self, text, room):
-        """在有地点的语音端上，用户说了设备但没点房间 -> 必须让 L3 结合地点判断"""
-        if not room: return False
-        if any(r in text for r in self.ROOM_WORDS): return False   # 点名了房间，不歧义
-        return any(w in text for w in self.AMBIGUOUS)
-
     def __init__(self, thresh=0.35, room=None):
         self.room=room
         self.store=json.loads(STORE.read_text("utf-8")) if STORE.exists() else {"l1":{}, "examples":[]}
@@ -283,32 +273,10 @@ class Understander:
     def understand(self, text, learn=True, last=None):
         t0=time.time()
         multi = self.looks_multi(text)
-        if self.looks_room_ambiguous(text, self.room):
-            if last:
-                d=call_llm_ctx(text, last, room=self.room)
-                if d.get("type")=="correction":
-                    return dict(action=d["action"], actions=d.get("actions",[]),
-                                layer="L3地点·纠正", ms=(time.time()-t0)*1000, conf=0.0,
-                                is_correction=True, undo=d["undo"])
-                if d.get("actions"):
-                    if learn:
-                        self.store["examples"].append({"text":text,"action":d["actions"][0]})
-                        self.save()
-                    return dict(action=d["actions"][0], actions=d["actions"], layer="L3地点",
-                                ms=(time.time()-t0)*1000, conf=0.0, learned=bool(learn))
-            a3,acts=call_llm(text, room=self.room)
-            ms=(time.time()-t0)*1000
-            if a3 and learn:
-                self.store["examples"].append({"text":text,"action":a3}); self.save()
-            return dict(action=a3, actions=acts, layer="L3地点", ms=ms, conf=0.0,
-                        learned=bool(a3 and learn))
-        if multi:
-            ml=self.local_multi(text)
-            if ml:
-                return dict(action=ml[0], actions=ml, layer="L2多",
-                            ms=(time.time()-t0)*1000, conf=1.0)
         if text in self.store["l1"] and not multi:
-            return dict(action=self.store["l1"][text], layer="L1",
+            a = self.store["l1"][text]
+            a, moved = CTX.localize(a, text, self.room)     # 就近改写，查表 0ms
+            return dict(action=a, actions=[a], layer="L1"+("·就近" if moved else ""),
                         ms=(time.time()-t0)*1000, conf=1.0)
         act,conf=self.student.predict(text)
         if act and conf>=self.thresh and not multi:
@@ -323,7 +291,9 @@ class Understander:
                 # 本地就认出这不归我管 —— 不必再问大模型，直接交回原助手
                 return dict(action=None, layer="L2", ms=(time.time()-t0)*1000,
                             conf=conf, out_of_scope=True)
-            return dict(action=act, layer="L2", ms=(time.time()-t0)*1000, conf=conf)
+            act, moved = CTX.localize(act, text, self.room)
+            return dict(action=act, actions=[act], layer="L2"+("·就近" if moved else ""),
+                        ms=(time.time()-t0)*1000, conf=conf)
         # 本地拿不准：有上下文就让大模型一次判断"纠正还是新指令"+动作
         if last:
             d=call_llm_ctx(text,last); ms=(time.time()-t0)*1000
@@ -346,5 +316,8 @@ class Understander:
             self.save()
             # 注意：这里【不】重训。980 条样例重训一次要 7.6s，会卡死用户等待。
             # 重训是离线蒸馏(distill.py)的活。运行时只负责记录。
+        if a3:
+            a3, moved = CTX.localize(a3, text, self.room)
+            acts=[CTX.localize(x, text, self.room)[0] for x in acts] or ([a3] if a3 else [])
         return dict(action=a3, actions=acts, layer="L3", ms=ms, conf=conf,
                     learned=bool(a3 and learn), l2_would_say=act)

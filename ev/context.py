@@ -76,6 +76,42 @@ ROOM_DEFAULTS = {
  "玄关": {"灯":"entry_on/entry_off"},
 }
 
+# 同一类设备在各房间的对应能力。用来做「就近改写」：
+# 分类器输出的是默认房间那台（如 ac_on=客厅空调），
+# 若用户没点名房间、而音箱在主卧，就查表换成 ac_bed_on。
+# 纯查表，0ms，不需要大模型。
+FAMILY = {
+ "空调": {"客厅":("ac_on","ac_off"), "主卧":("ac_bed_on","ac_bed_off"),
+          "次卧":("ac_second_on","ac_second_off")},
+ "灯":   {"客厅":("light_living_on","light_living_off"), "主卧":("light_bed_on","light_bed_off"),
+          "餐厅":("dining_on","dining_off"), "厨房":("kitchen_on","kitchen_off"),
+          "玄关":("entry_on","entry_off"), "过道":("hallway_on","hallway_off")},
+ "新风": {"客厅":("fresh_air_living_on",None), "主卧":("fresh_air_bed_on",None),
+          "次卧":("fresh_air_second_on",None)},
+ "窗帘": {"客厅":("curtain_open","curtain_close"), "主卧":("bed_curtain_open","bed_curtain_close")},
+}
+ROOM_WORDS = ("客厅","主卧","次卧","卧室","餐厅","厨房","玄关","进门","过道","干区","阳台","客房","门厅","饭厅")
+
+# 反查：能力 id -> (家族, 房间, 开还是关)
+_INDEX = {}
+for _fam, _rooms in FAMILY.items():
+    for _room, _pair in _rooms.items():
+        for _i, _aid in enumerate(_pair):
+            if _aid: _INDEX[_aid] = (_fam, _room, _i)
+
+def localize(action, text, room):
+    """就近改写：用户没点名房间时，把动作换成音箱所在房间的那台。
+    返回 (新动作, 是否改写了)。查表操作，本地即可完成。"""
+    if not room or not action: return action, False
+    if any(w in text for w in ROOM_WORDS): return action, False   # 点名了房间，尊重原话
+    info = _INDEX.get(action)
+    if not info: return action, False                              # 不是分房间的设备
+    fam, cur_room, slot = info
+    if cur_room == room: return action, False
+    target = FAMILY[fam].get(room)
+    if not target or not target[slot]: return action, False        # 该房间没这个设备
+    return target[slot], True
+
 def where(room=None):
     """说话地点。用户不点名房间时，笼统指令应该落在这个房间。"""
     if not room: return ""
