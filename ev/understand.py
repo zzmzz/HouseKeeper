@@ -183,7 +183,8 @@ class Understander:
             if len(parts)==2 and all(len(x.strip())>=2 for x in parts): return True
         return False
 
-    SPLIT_RE = r"[，,、；;]|顺便|然后|还有|另外|同时|并且|再把|再开|再关|一起|以及"
+    SPLIT_RE = (r"[，,、；;]|\s{2,}|顺便|顺手|然后|还有|另外|同时|并且|以及|"
+                r"再把|再开|再关|再拉|一起|也别|也不要|也开|也关|也拉")
 
     def split_segments(self, text):
         import re
@@ -218,6 +219,50 @@ class Understander:
             return "lights_state" if "灯" in text else "device_state"
         return action
 
+    # 场景/批量类能力：它们本身就代表"一整套动作"，命中就不该再拆句
+    SCENE_KINDS = ("scene",)
+
+    def try_decompose(self, text):
+        """多意图：切段后逐段问模型，而不是硬训模型输出数组。
+
+        为什么这么做（查了文献 + 自己踩坑）：
+        - 复制少数类样本会过拟合（实测：多意图复制 3 次 -> 单意图 96% 掉到 90%），
+          文献也指出 LLM 造少数类数据的通病是"多样性不足"而非数量不足。
+        - 模型其实能分清场景 vs 多意图（「关灯拉窗帘我要睡了」正确输出 scene_sleep），
+          只是不肯输出多元素数组——96% 的训练样本都是单元素，它把这当成了强先验。
+        - 所以：让它先判整句。命中场景/批量能力 -> 就是一个动作，不拆。
+          否则切段逐段问——单动作它有 96% 准确率，正是它擅长的。
+        """
+        segs = self.split_segments(text)
+        if len(segs) < 2:
+            return None
+        whole_pol = self._polarity(text)
+        out = []
+        for sg in segs:
+            pol = self._polarity(sg)
+            # 「也别落下」「也不要关」这类：字面像关、实际跟着整句走
+            if any(w in sg for w in ("也别落下", "别落下", "也不要落下")):
+                pol = whole_pol
+                sg = ("开" if whole_pol == "open" else "关") + sg.replace("也别落下","").replace("别落下","")
+            elif pol is None and whole_pol:                   # 切完丢了动词，补回去
+                sg = ("开" if whole_pol == "open" else "关") + sg
+            acts, _ = mlx_predict(sg)
+            if not acts:
+                return None                                   # 有一段拿不准，整句交给 L3
+            a = acts[0]
+            kind = CAPS.get(a, {}).get("kind")
+            if kind in self.SCENE_KINDS:
+                return None                                   # 段里冒出场景，说明切错了
+            # 一句控制指令被切碎后，残段容易被判成查询/音箱控制（实测拆出过
+            # lights_state、music_pause）。这类混进来说明切过头了，整句作废交 L3。
+            if kind in ("hass_query",) or a in ("music_pause","music_next","volume_up","volume_down"):
+                return None
+            if len(out) >= 3:                                 # 一句话超过 3 个动作，多半是切碎了
+                return None
+            if a not in out:
+                out.append(a)
+        return out if len(out) >= 2 else None
+
     def understand(self, text, learn=True, last=None):
         t0=time.time()
         multi = self.looks_multi(text)
@@ -228,6 +273,15 @@ class Understander:
                         ms=(time.time()-t0)*1000, conf=1.0)
         # L2：微调 0.6B（Mac mini）。id 白名单已在 mlx_predict 里过滤，编造的会返回 None
         macts, mms = mlx_predict(text)
+        # 模型只给了一个动作，但句子像多意图，且它给的不是场景类 -> 试着拆
+        if macts and len(macts) < 2 and multi and \
+           CAPS.get(macts[0], {}).get("kind") not in self.SCENE_KINDS:
+            dec = self.try_decompose(text)
+            if dec:
+                dec = [self.rule_fix(a, text) for a in dec]
+                dec = [CTX.localize(a, text, self.room)[0] for a in dec]
+                return dict(action=dec[0], actions=dec, layer="L2·模型多",
+                            ms=(time.time()-t0)*1000, conf=0.85)
         if macts and not (multi and len(macts) < 2):
             # 多意图：模型直接输出 actions 数组；只出一个但看着像多意图 -> 交给 L3 拆
             macts = [self.rule_fix(a, text) for a in macts]
