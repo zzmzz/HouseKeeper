@@ -8,7 +8,7 @@ def _num(v):
     except Exception: return None
 
 def _judge_air(vals, wx):
-    """派生指标：家里闷不闷 / 适不适合开窗（现成读数里没有，用已有传感器组合）"""
+    """派生判断：适不适合开窗 / 空气怎么样（没有这种现成读数，用已有传感器组合）"""
     t  = _num(vals.get("客厅温度")); h = _num(vals.get("客厅湿度"))
     pm = _num(vals.get("PM2.5"));    ot = _num(wx.get("temp")) if wx.get("ok") else None
     bits, advice = [], []
@@ -16,9 +16,9 @@ def _judge_air(vals, wx):
     if h is not None: bits.append(f"湿度 {h}%")
     if pm is not None: bits.append(f"PM2.5 {pm}")
     if wx.get("ok"): bits.append(f"室外 {wx['temp']}℃ {wx['cond']}")
-    # 闷度：温度高 + 湿度高
+    # 体感：温度高 + 湿度高 = 黏腻
     if t is not None and h is not None:
-        if t >= 27 and h >= 60: advice.append("有点闷")
+        if t >= 27 and h >= 60: advice.append("有点潮热")
         elif h < 35: advice.append("偏干")
         else: advice.append("还行")
     # 适不适合开窗
