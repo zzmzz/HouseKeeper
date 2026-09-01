@@ -50,6 +50,13 @@ class H(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(b)
 
     def do_GET(self):
+        if self.path in ("/", "/console", "/index.html"):
+            f = pathlib.Path(__file__).parent / "console.html"
+            b = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers(); self.wfile.write(b); return
         if self.path.startswith("/health"):
             ev = get_ev("_probe")
             return self._send({"ok": True, "capabilities": len(CAPS),
@@ -59,6 +66,14 @@ class H(BaseHTTPRequestHandler):
         self._send({"error": "not found"}, 404)
 
     def do_POST(self):
+        if self.path.startswith("/reset"):
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                sess = (json.loads(self.rfile.read(n) or b"{}")).get("session", "default")
+            except Exception:
+                sess = "default"
+            with _lock: _sessions.pop(sess, None)
+            return self._send({"ok": True, "reset": sess})
         if not self.path.startswith("/ask"):
             return self._send({"error": "not found"}, 404)
         try:

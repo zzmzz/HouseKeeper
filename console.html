@@ -1,0 +1,169 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>E.V. 测试台</title><style>
+:root{color-scheme:light;--bg:#f7f7f5;--sf:#fcfcfb;--bd:#e4e3df;--i1:#0b0b0b;--i2:#52514e;--i3:#87857e;
+ --s1:#2a78d6;--s2:#eb6834;--ok:#0ca30c;--bad:#d03b3b}
+@media(prefers-color-scheme:dark){:root{--bg:#121211;--sf:#1a1a19;--bd:#33322f;--i1:#fff;--i2:#c3c2b7;
+ --i3:#8d8c84;--s1:#3987e5;--s2:#d95926}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--i1);
+ font:15px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+.w{max-width:760px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:20px;margin:0 0 4px}.sub{color:var(--i3);font-size:13px;margin:0 0 16px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:var(--sf);border:1px solid var(--bd);
+ border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.bar label{font-size:13px;color:var(--i2)}
+select,input,button{font:inherit;border:1px solid var(--bd);border-radius:8px;background:var(--sf);
+ color:var(--i1);padding:9px 11px}
+select{padding:7px 9px;font-size:13px}
+#t{flex:1;min-width:180px}
+button{cursor:pointer;background:var(--s1);color:#fff;border-color:transparent;font-weight:600}
+button.g{background:transparent;color:var(--i2);border-color:var(--bd);font-weight:400;font-size:13px;padding:7px 10px}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;margin-bottom:14px}
+.quick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.msg{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;margin-bottom:9px}
+.u{color:var(--i2);font-size:13.5px;margin-bottom:5px}
+.u b{color:var(--i1);font-size:15px}
+.r{font-size:15px;margin-bottom:7px}
+.tr{display:flex;gap:6px;flex-wrap:wrap;font-size:11.5px}
+.tag{border:1px solid var(--bd);border-radius:5px;padding:2px 7px;color:var(--i2);
+ font-variant-numeric:tabular-nums;white-space:nowrap}
+.tag.L{border-color:color-mix(in srgb,var(--s1) 45%,var(--bd));color:var(--s1)}
+.tag.slow{border-color:color-mix(in srgb,var(--s2) 45%,var(--bd));color:var(--s2)}
+.tag.no{border-color:color-mix(in srgb,var(--i3) 45%,var(--bd))}
+.st{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--i2)}
+.st b{color:var(--i1)}
+pre{margin:6px 0 0;font-size:11.5px;color:var(--i3);white-space:pre-wrap;word-break:break-all}
+.pass{color:var(--ok);font-weight:600}.fail{color:var(--bad);font-weight:600}
+</style></head><body><div class="w">
+<h1>E.V. 测试台</h1>
+<p class="sub">不用在家、不用音箱。打字即可测后端逻辑：理解 → 执行 → 回答，含就近改写、连续纠正、二次确认。</p>
+
+<div class="st" id="st">连接中…</div>
+
+<div class="bar">
+  <label>音箱位置</label>
+  <select id="room">
+    <option value="主卧">主卧</option><option value="客厅">客厅</option>
+    <option value="次卧">次卧</option><option value="厨房">厨房</option>
+    <option value="">不设（命令行）</option>
+  </select>
+  <label>会话</label>
+  <select id="sess"><option value="web">web</option><option value="web2">web2（独立上下文）</option></select>
+  <button class="g" onclick="reset()">清空对话</button>
+</div>
+
+<div class="row">
+  <input id="t" placeholder="说点什么，如：打开空调" autocomplete="off">
+  <button id="go" onclick="send()">发送</button>
+</div>
+
+<div class="quick" id="quick"></div>
+<div class="quick"><button class="g" onclick="suite()">▶ 跑一遍标准场景（自动检查对错）</button></div>
+
+<div id="log"></div>
+</div><script>
+const QUICK=["打开空调","把灯关了","客厅空调打开","现在适合开窗吗","我要睡了",
+ "开浴霸和热水器","家里现在哪些灯还开着","给我讲个笑话","帮我开下门","现在去公司要多久"];
+document.getElementById('quick').innerHTML=QUICK.map(q=>
+  `<button class="g" onclick="send('${q}')">${q}</button>`).join('');
+
+async function health(){
+  try{
+    const d=await (await fetch('/health')).json();
+    document.getElementById('st').innerHTML=
+      `能力 <b>${d.capabilities}</b> 个　·　阈值 <b>${d.thresh}</b>　·　`+
+      (d.dry_run?'<b>dry-run</b>（不会真动设备）':'<b style="color:var(--bad)">真实控制模式</b>')+
+      (Object.keys(d.rooms||{}).length?`　·　已知位置 ${JSON.stringify(d.rooms)}`:'');
+  }catch(e){document.getElementById('st').textContent='服务连不上：'+e}
+}
+health();
+
+function card(text,d,expect){
+  const ms=d.ms??0, layer=d.layer||'-';
+  let cls='tag L'; if(ms>800)cls='tag slow'; if(!d.handled)cls='tag no';
+  let ok='';
+  if(expect) ok = d.action===expect
+      ? '<span class="tag pass">✓ 符合预期</span>'
+      : `<span class="tag fail">✗ 期望 ${expect}</span>`;
+  return `<div class="msg">
+    <div class="u">你说：<b>${text}</b></div>
+    <div class="r">${d.reply??'(无回答)'}</div>
+    <div class="tr">
+      <span class="${cls}">${layer}</span>
+      <span class="tag">${ms}ms</span>
+      <span class="tag">${d.action??'—'}</span>
+      ${d.device?`<span class="tag">→ ${d.device}</span>`:''}
+      ${d.room?`<span class="tag">📍${d.room}</span>`:''}
+      ${d.handled?'':'<span class="tag">交回原助手</span>'}
+      ${d.need_confirm?'<span class="tag slow">待确认</span>':''}
+      ${ok}
+    </div>
+    ${d.actions&&d.actions.length>1?`<pre>多意图：${d.actions.join(' + ')}</pre>`:''}
+  </div>`;
+}
+
+async function ask(text){
+  const room=document.getElementById('room').value;
+  const session=document.getElementById('sess').value;
+  const r=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({text,session,room})});
+  return await r.json();
+}
+
+async function send(preset){
+  const box=document.getElementById('t');
+  const text=(preset??box.value).trim(); if(!text)return;
+  if(!preset)box.value='';
+  const go=document.getElementById('go'); go.disabled=true; go.textContent='…';
+  try{
+    const d=await ask(text);
+    document.getElementById('log').insertAdjacentHTML('afterbegin',card(text,d));
+  }catch(e){
+    document.getElementById('log').insertAdjacentHTML('afterbegin',
+      `<div class="msg"><div class="u">你说：<b>${text}</b></div><div class="r fail">出错：${e}</div></div>`);
+  }finally{go.disabled=false;go.textContent='发送';health()}
+}
+document.getElementById('t').addEventListener('keydown',e=>{if(e.key==='Enter')send()});
+
+// 标准场景：一串带预期答案的用例，跑完自动标对错
+const SUITE=[
+ ["打开空调",         r=>r==='主卧'?'ac_bed_on':r==='客厅'?'ac_on':null, "就近改写"],
+ ["把灯关了",         r=>r==='主卧'?'light_bed_off':r==='客厅'?'light_living_off':null, "就近改写"],
+ ["客厅空调打开",      ()=>'ac_on',            "点名房间优先"],
+ ["开下浴霸",         ()=>'bath_heater_on',   "普通指令"],
+ ["开浴霸和热水器",    ()=>'bath_heater_on',   "多意图"],
+ ["我要睡了",         ()=>'scene_sleep',      "场景"],
+ ["现在适合开窗吗",    ()=>'air_quality',      "查询+派生判断"],
+ ["现在去公司要多久",  ()=>'commute_eta',      "外部接口"],
+ ["家里现在哪些灯还开着",()=>'device_state',    "状态查询"],
+ ["给我讲个笑话",      ()=>null,               "非家居→交回"],
+ ["帮我开下门",       ()=>'door_unlock',      "高危→二次确认"],
+];
+async function suite(){
+  reset();
+  const room=document.getElementById('room').value;
+  const log=document.getElementById('log');
+  let pass=0;
+  for(const [text,exp,note] of SUITE){
+    const expect=exp(room);
+    const d=await ask(text);
+    const good = expect===null ? !d.handled : d.action===expect;
+    if(good)pass++;
+    log.insertAdjacentHTML('beforeend',
+      card(text+`　（${note}）`,d, expect===null?undefined:expect)
+      .replace('</div></div>', '</div></div>'));
+    if(expect===null){
+      log.lastElementChild.querySelector('.tr').insertAdjacentHTML('beforeend',
+        good?'<span class="tag pass">✓ 正确交回</span>':'<span class="tag fail">✗ 不该接管</span>');
+    }
+  }
+  log.insertAdjacentHTML('afterbegin',
+    `<div class="st">标准场景：<b class="${pass===SUITE.length?'pass':'fail'}">${pass}/${SUITE.length}</b> 通过　（位置：${room||'未设'}）</div>`);
+}
+function reset(){
+  document.getElementById('log').innerHTML='';
+  fetch('/reset',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({session:document.getElementById('sess').value})}).catch(()=>{});
+}
+</script></body></html>

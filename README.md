@@ -35,7 +35,12 @@ python3 ev/bootstrap.py    # 0 → 成熟：只给一份能力清单，自动跑
 python3 ev/daily.py        # 1 → n：从真实交互记录持续改进（建议挂夜间定时）
 python3 ev/agent.py        # 用起来（默认 dry-run，不会真动设备）
 python3 make_report.py     # 把任意一次 run 渲染成可演示的网页
+
+python3 ev_server.py       # HTTP 服务；浏览器打开 http://<IP>:8848/ 是测试台
 ```
+
+**测试台**：不用在家、不用音箱，打字就能测后端逻辑。可切换「音箱位置」看就近改写、
+可用两个会话验证上下文互不干扰、一键跑标准场景自动检查对错。
 
 `daily.py` 的阶段就是 Loop 五要素：
 
