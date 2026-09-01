@@ -1,0 +1,25 @@
+diff --git a/examples/gemini/src/server.rs b/examples/gemini/src/server.rs
+index b8398f4..1d4a94a 100644
+--- a/examples/gemini/src/server.rs
++++ b/examples/gemini/src/server.rs
+@@ -6,7 +6,7 @@ use open_xiaoai::services::connect::message::{MessageManager, WsStream};
+ use open_xiaoai::services::connect::rpc::RPC;
+ use open_xiaoai::services::speaker::SpeakerManager;
+ use open_xiaoai::utils::task::TaskManager;
+-use pyo3::types::PyBytes;
++use pyo3::types::{PyBytes, PyString};
+ use pyo3::Python;
+ use serde_json::json;
+ use tokio::net::{TcpListener, TcpStream};
+@@ -128,5 +128,11 @@ async fn on_stream(stream: Stream) -> Result<(), AppError> {
+ 
+ async fn on_event(event: Event) -> Result<(), AppError> {
+     crate::pylog!("🔥 收到 Event: {:?}", event);
++    // 转发给 Python —— 官方 gemini 示例只打日志、不转发，
++    // 导致 Python 侧拿不到语音识别结果（只能拿音频流）。
++    // 我们要的是 xiaoai_asr 模式：复用小爱原生 ASR 的文本。
++    let payload = serde_json::to_string(&event).unwrap_or_default();
++    let data = Python::with_gil(|py| PyString::new(py, &payload).into());
++    let _ = PythonManager::instance().call_fn("on_event", Some(data));
+     Ok(())
+ }
