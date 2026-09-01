@@ -101,10 +101,15 @@ EV_ROOM=客厅 EV_SESSION=xiaoai-living sh /data/ev-client.sh
   `instruction.log` 里的 `FinishSpeakStream` 只表示"流传输完"（1 秒内就出现），
   不是播放完。唯一可靠的信号是 **`mphelper mute_stat`：播放中=1，空闲=0**。
   播完之前 wake_up 没用——语音一结束小爱会自己把麦关掉。
-- **`event 7` 实际是「取消唤醒」序列的一半**（完整是 7+8），副作用是**会把麦克风关掉**——
-  用户每轮都得重喊「小爱同学」。所以说完话要配一次静默唤醒
-  `pnshelper event_notify '{"src":1,"event":0}'`（src=1 不出「我在」提示音）
-  把麦开回来，这样才能连续对话。
+- **⚠️ 千万别用 `pnshelper event 7` 打断说话。** 它是「取消唤醒」序列的**前半截**
+  （完整是 7 然后 8）。只发 7 不发 8 会把唤醒状态机卡在半路——
+  **实测导致唤醒词彻底失灵，只能手动点麦克风**。
+  恢复办法：补发一次完整的 `7` → `sleep 0.2` → `8`。
+  打断说话请用 `mediaplayer player_play_operation '{"action":"pause"}'`，
+  它只动音频、不碰唤醒状态机。
+- **连续对话**：答完用 `pnshelper event_notify '{"src":1,"event":0}'` 静默开麦
+  （`src=1` 不出「我在」提示音）。已实测：发完这条后不喊唤醒词直接说话能正常识别。
+  这条和 event 7/8 是相反方向，安全。
 
 ## 另一个实现
 

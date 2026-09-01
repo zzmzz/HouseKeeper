@@ -35,14 +35,21 @@ speak() {
 hand_back() {
   ubus call mibrain ai_service "{\"nlp\":1,\"nlp_text\":\"$1\"}" >/dev/null 2>&1
 }
-# 打断小爱自己的回答，避免和我们的回答重叠。
-# 注意：event 7 实际是「取消唤醒」序列的一半，副作用是**会把麦克风关掉**——
-# 所以说完话必须配一次 wake_up 把麦开回来，否则用户每轮都要重新喊唤醒词。
+# 打断小爱自己的回答。
+#
+# ⚠️ 血泪教训：不要用 pnshelper event 7！
+# 它是「取消唤醒」序列的**前半截**（完整是 7 然后 8）。只发 7 不发 8，
+# 会把唤醒状态机卡在半路——实测导致**唤醒词彻底失灵**，只能手动点麦克风。
+# 恢复办法：补发一次完整的 7 + 8。
+#
+# 改用 mediaplayer 直接停播，只影响音频、不碰唤醒状态机。
 stop_native() {
-  ubus call pnshelper event_notify '{"src":3,"event":7}' >/dev/null 2>&1
+  ubus call mediaplayer player_play_operation '{"action":"pause"}' >/dev/null 2>&1
 }
 
-# 静默唤醒：开麦但不出「我在」提示音，用户可以直接接着说下一句
+# 静默唤醒：开麦但不出「我在」提示音，用户可以直接接着说下一句。
+# ✅ 已实测验证：发完这条后不喊唤醒词直接说话，能正常识别。
+# 注意和 event 7/8（取消唤醒）是完全不同的方向，这条不会破坏唤醒状态机。
 wake_up() {
   ubus call pnshelper event_notify '{"src":1,"event":0}' >/dev/null 2>&1
 }
