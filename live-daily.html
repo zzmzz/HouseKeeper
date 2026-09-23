@@ -1,0 +1,143 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<title>E.V. · 日常 Loop（实时）</title>
+<style>
+:root{color-scheme:light;--bg:#f7f7f5;--card:#fff;--border:#e4e3df;
+--ink1:#0b0b0b;--ink2:#52514e;--ink3:#87857e;--blue:#2a78d6;--orange:#eb6834;--good:#0ca30c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink1);
+ font:17px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 24px 130px}
+h1{font-size:30px;margin:0 0 4px;letter-spacing:-.4px}
+.sub{color:var(--ink3);margin:0 0 22px;font-size:15px}
+/* 进度轴 */
+.nav{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 10px;margin-bottom:20px}
+.nav ol{display:flex;list-style:none;margin:0;padding:0}
+.nav li{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;position:relative}
+.nav li::before{content:"";position:absolute;top:13px;left:0;width:100%;height:2px;background:var(--border)}
+.nav li:first-child::before{left:50%;width:50%}
+.nav li:last-child::before{width:50%}
+.nav li.done::before,.nav li.cur::before{background:var(--ink-3,#87857e)}
+.nav i{width:27px;height:27px;border-radius:50%;background:#dedcd6;color:#fff;
+ font-style:normal;font-size:13px;display:grid;place-items:center;position:relative;z-index:1;font-weight:700}
+.nav li.done i{background:var(--good)}
+.nav li.cur i{background:var(--ink1);transform:scale(1.18);box-shadow:0 0 0 4px rgba(11,11,11,.09)}
+.nav b{font-size:14px;color:#c2c0ba;font-weight:500}
+.nav li.done b{color:var(--ink2)}
+.nav li.cur b{color:var(--ink1);font-weight:700}
+.nav li .rd{font-size:11px;color:var(--orange);font-weight:700;height:13px}
+/* 控制台 */
+.term{background:#0b0b0b;border-radius:12px;padding:18px 20px;height:560px;overflow:hidden;
+ font:14.5px/1.62 "JetBrains Mono","Noto Sans Mono",ui-monospace,Menlo,Consolas,monospace;
+ color:#d8d6d0;position:relative}
+.term .l{white-space:pre-wrap;word-break:break-all}
+.term .stage{color:#fff;font-weight:700;margin-top:8px}
+.term .metric{color:#8fd08f}
+.term .art{color:#87b9f0}
+.term .bad{color:#f0916a}
+.term .ok{color:#7ede7e;font-weight:700}
+.term .dim{color:#6f6d68}
+/* 字幕 */
+.cap{position:fixed;left:0;right:0;bottom:0;background:rgba(11,11,11,.96);color:#fff;
+ padding:24px 34px;min-height:96px;display:flex;align-items:center;backdrop-filter:blur(6px)}
+.cap .in{max-width:1180px;margin:0 auto;width:100%;font-size:30px;font-weight:700;letter-spacing:.5px}
+.cap .tag{display:inline-block;background:var(--orange);color:#fff;font-size:20px;
+ font-weight:700;padding:4px 15px;border-radius:7px;margin-right:16px;vertical-align:middle}
+</style></head><body>
+<div class="wrap">
+  <h1>日常 Loop · 一句接不住的话，怎么变成能力</h1>
+  <p class="sub">下面是真的在跑：真问服务、真调大模型、真提 issue、真改代码——控制台是实时输出</p>
+  <nav class="nav"><ol id="nav"></ol></nav>
+  <div class="term" id="term"></div>
+</div>
+<div class="cap"><div class="in" id="cap"></div></div>
+<script>
+const STEPS = [
+  {k:"试几句",  m:/\[1\] 试几句/,        cap:"先看它现在做得到什么"},
+  {k:"质检",    m:/\[2\] 回答质检/,      cap:"答得对不对，复核一遍"},
+  {k:"分类",    m:/\[3\] 分类/,          cap:"缺的到底是哪一块"},
+  {k:"提 issue",m:/\[4\] 提 issue/,      cap:"攒够了才开一条"},
+  {k:"写需求",  m:/\[5\] 人写一句需求/,  cap:"只有这一步要人动手"},
+  {k:"改代码",  m:/\[6\] 自动实现/,      cap:"它自己读需求改代码"},
+  {k:"合并",    m:/\[7\] 合并、同步、生效/, cap:"合完还得拉回来重启"},
+  {k:"再试试",  m:/\[8\] 再说同一句话/,  cap:"现在走哪一层，做几样"},
+];
+const nav = document.getElementById("nav"), term = document.getElementById("term"), cap = document.getElementById("cap");
+STEPS.forEach((s,i)=>{
+  const li=document.createElement("li");
+  li.innerHTML='<i>'+(i+1)+'</i><b>'+s.k+'</b><span class="rd"></span>';
+  nav.appendChild(li);
+});
+const lis=[...nav.children];
+let cur=-1, round=0;
+function setStep(i, tag){
+  if(i===cur && !tag) return;
+  cur=i;
+  lis.forEach((li,j)=>{
+    li.classList.toggle("cur", j===i);
+    li.classList.toggle("done", j<i || (round>1 && j<4));
+  });
+  if(tag) lis[i].querySelector(".rd").textContent = tag;
+  cap.innerHTML='<span class="tag">'+STEPS[i].k+'</span>'+STEPS[i].cap;
+}
+function cls(t){
+  if(/^\[\d+\]/.test(t))            return "stage";
+  if(/^\s*·/.test(t))               return "metric";
+  if(/^\s*[│├└]/.test(t))           return "art";
+  if(/✗|回滚|失败/.test(t))          return "bad";
+  if(/✅|晋升|通过|达标/.test(t))     return "ok";
+  if(/^\s*\(|^\s*$/.test(t))        return "dim";
+  return "l";
+}
+let typing = Promise.resolve();
+function typeLine(raw){
+  // 人敲出来的那一行：逐字显示 + 光标。不这么做的话，
+  // 命令和输入都是整行瞬间蹦出来，看着就像预先写好的脚本。
+  const txt = raw.slice(5);
+  const d=document.createElement("div");
+  d.className="l "+cls(txt);
+  term.appendChild(d);
+  return new Promise(res=>{
+    let i=0;
+    const tick=()=>{
+      d.textContent = txt.slice(0,++i) + (i<txt.length ? "▋" : "");
+      term.scrollTop = term.scrollHeight;
+      if(i<txt.length) setTimeout(tick, 32 + Math.random()*40);
+      else setTimeout(res, 420);        // 敲完停一下，像在等回车
+    };
+    tick();
+  });
+}
+function push(t){
+  if(t.startsWith("@type")){ typing = typing.then(()=>typeLine(t)); return; }
+  // 心跳只占一行，原地刷。一次追加一行的话，六分钟的分类会堆出十九行灰字
+  // 把整屏刷满，还一路留在后面几步的背景里——比死屏更难看。
+  if(t.startsWith("@beat")){
+    let b=term.lastElementChild;
+    if(!b || !b.classList.contains("beat")){
+      b=document.createElement("div"); b.className="l dim beat"; term.appendChild(b);
+    }
+    b.textContent=t.slice(5); term.scrollTop=term.scrollHeight; return;
+  }
+  const last=term.lastElementChild;
+  if(last && last.classList.contains("beat")) term.removeChild(last);   // 有真产出了就撤掉
+  const d=document.createElement("div");
+  d.className="l "+cls(t); d.textContent=t;
+  term.appendChild(d);
+  while(term.scrollHeight > term.clientHeight + 400 && term.firstChild) term.removeChild(term.firstChild);
+  term.scrollTop = term.scrollHeight;
+  const rm = t.match(/第\s*(\d+)\s*轮/);
+  if(rm) round = +rm[1];
+  for(let i=0;i<STEPS.length;i++){
+    if(STEPS[i].m.test(t)){ setStep(i, round>1 && i>=4 ? "第"+round+"轮" : ""); break; }
+  }
+}
+const es = new EventSource("/live2");
+es.onmessage = e => {
+  if(!e.data) return;
+  if(e.data.startsWith("@type")) { push(e.data); return; }
+  // 普通行也排队，保证跟打字行的先后顺序
+  typing = typing.then(()=>{ push(e.data); });
+};
+// 别关。闭环里重启服务会断一次，关掉就再也接不上，后面的步骤全丢。浏览器自己会带 Last-Event-ID 重连。
+es.onerror = () => {};
+</script></body></html>
